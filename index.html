@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Cat Maze Neon Edition</title>
+    <title>Cat Maze DX - Helena Games Edition</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body {
@@ -18,15 +18,16 @@
             align-items: center;
             justify-content: center;
             min-height: 100vh;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         }
         #game-canvas {
             image-rendering: auto;
             max-width: 100%;
             height: auto;
-            background: rgba(15, 23, 42, 0.9);
-            border: 4px solid #6366f1;
-            border-radius: 20px;
-            box-shadow: 0 0 25px rgba(99, 102, 241, 0.5);
+            background: rgba(15, 23, 42, 0.95);
+            border: 3px solid #6366f1;
+            border-radius: 16px;
+            box-shadow: 0 0 25px rgba(99, 102, 241, 0.4);
         }
         .btn-control {
             width: 70px;
@@ -37,285 +38,429 @@
             background: rgba(255, 255, 255, 0.1);
             backdrop-filter: blur(10px);
             border-radius: 20px;
-            border: 2px solid rgba(99, 102, 241, 0.4);
+            border: 2px solid rgba(129, 140, 248, 0.3);
             font-size: 2rem;
             cursor: pointer;
             transition: all 0.1s;
+            box-shadow: 0 4px 0 rgba(0,0,0,0.3);
         }
-        .btn-control:active {
-            background: #6366f1;
-            transform: scale(0.9);
-            box-shadow: 0 0 15px #6366f1;
+        .btn-control:active { 
+            background: #4f46e5; 
+            transform: translateY(4px); 
+            box-shadow: 0 0px 0 rgba(0,0,0,0.3);
         }
-        .neon-text {
-            text-shadow: 0 0 12px rgba(99, 102, 241, 0.9);
+        .neon-text { text-shadow: 0 0 15px rgba(99, 102, 241, 0.8), 0 0 30px rgba(79, 70, 229, 0.5); }
+        
+        #splash-screen {
+            position: fixed;
+            inset: 0;
+            background: #0f172a;
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            transition: opacity 0.6s ease;
         }
-        #win-overlay {
-            z-index: 100;
+
+        .credit-text {
+            font-size: 0.65rem;
+            letter-spacing: 0.15rem;
+            color: rgba(129, 140, 248, 0.6);
+            margin-top: 1.5rem;
+            text-transform: uppercase;
+            font-weight: 300;
         }
+
+        .skin-card {
+            background: rgba(30, 41, 59, 0.9);
+            border: 2px solid transparent;
+            border-radius: 12px;
+            transition: all 0.2s;
+        }
+        .skin-card.selected { border-color: #818cf8; background: rgba(79, 70, 229, 0.4); }
+        .skin-card.locked { opacity: 0.5; }
     </style>
 </head>
 <body class="p-4">
 
-    <!-- Header -->
-    <div class="w-full max-w-md flex justify-between items-center mb-4">
-        <div>
-            <h1 class="text-3xl font-black neon-text italic tracking-tighter text-white">CAT MAZE <span class="text-indigo-400">DX</span></h1>
-            <div class="flex gap-2 mt-1">
-                <span class="bg-indigo-900 border border-indigo-500 px-2 py-0.5 rounded text-[10px] font-bold" id="level-display">NÍVEL 1</span>
-                <span class="bg-yellow-900 border border-yellow-500 text-yellow-300 px-2 py-0.5 rounded text-[10px] font-bold" id="coin-display">🐁 0</span>
+    <!-- Splash Screen de Abertura -->
+    <div id="splash-screen">
+        <div class="animate-pulse">
+            <h1 class="text-6xl font-black italic tracking-tighter neon-text mb-2">HELENA GAMES</h1>
+            <div class="w-full max-w-[200px] h-1 bg-indigo-900/50 rounded-full overflow-hidden mx-auto mt-4">
+                <div id="progress-bar" class="w-0 h-full bg-indigo-500 transition-all duration-1000"></div>
             </div>
+            <p class="credit-text">Jogo desenvolvido por Helena Mota Moreira</p>
         </div>
-        <button id="open-skins" class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2 px-6 rounded-xl shadow-lg transition-all text-sm uppercase tracking-widest">
-            Skins
+    </div>
+
+    <!-- Interface -->
+    <div class="w-full max-w-md flex justify-between items-center mb-4">
+        <div class="flex flex-col">
+            <span id="level-ui" class="text-xs font-bold text-indigo-400 tracking-wider">NÍVEL 1</span>
+            <span id="coin-ui" class="text-2xl font-black text-yellow-400 drop-shadow-md">🐁 0</span>
+        </div>
+        <button id="btn-skins" class="bg-indigo-600 px-5 py-2 rounded-xl font-bold text-sm shadow-lg hover:bg-indigo-500 active:scale-95 transition-all uppercase tracking-widest border-b-4 border-indigo-800">
+            Loja 🐾
         </button>
     </div>
 
-    <!-- Game -->
-    <div class="relative">
+    <!-- Canvas -->
+    <div class="relative w-full max-w-md">
         <canvas id="game-canvas"></canvas>
         
-        <div id="win-overlay" class="absolute inset-0 bg-indigo-950/95 backdrop-blur-md hidden flex-col items-center justify-center rounded-2xl border-4 border-indigo-400">
-            <h2 class="text-5xl font-black text-white mb-2 neon-text text-center">VITÓRIA!</h2>
-            <p class="text-indigo-200 mb-8 font-medium">Caçador de ratinhos mestre!</p>
-            <div id="new-skin-preview" class="text-8xl mb-10"></div>
-            <button id="next-level" class="bg-white text-indigo-900 font-black py-4 px-12 rounded-2xl text-xl hover:scale-105 active:scale-95 transition-all">
+        <!-- Vitória -->
+        <div id="win-screen" class="absolute inset-0 hidden flex-col items-center justify-center rounded-2xl border-2 border-indigo-400 backdrop-blur-md z-50 bg-slate-900/80">
+            <h3 class="text-5xl font-black text-white mb-2 neon-text italic">VITÓRIA!</h3>
+            <p class="text-indigo-200 mb-8 font-medium">Peixinho capturado!</p>
+            <button id="btn-next" class="bg-indigo-500 text-white font-black py-4 px-10 rounded-2xl shadow-2xl hover:bg-indigo-400 active:scale-90 transition-all text-xl uppercase italic border-b-4 border-indigo-700">
                 PRÓXIMO NÍVEL
             </button>
         </div>
     </div>
 
-    <!-- Controls -->
-    <div class="mt-6 grid grid-cols-3 gap-3">
+    <!-- Controlos -->
+    <div class="mt-8 grid grid-cols-3 gap-4">
         <div></div>
-        <button class="btn-control" id="ctrl-up">⬆️</button>
+        <button class="btn-control" id="btn-up">⬆️</button>
         <div></div>
-        <button class="btn-control" id="ctrl-left">⬅️</button>
-        <button class="btn-control" id="ctrl-down">⬇️</button>
-        <button class="btn-control" id="ctrl-right">➡️</button>
+        <button class="btn-control" id="btn-left">⬅️</button>
+        <button class="btn-control" id="btn-down">⬇️</button>
+        <button class="btn-control" id="btn-right">➡️</button>
     </div>
 
-    <!-- Modal -->
-    <div id="skins-modal" class="fixed inset-0 bg-black/80 hidden z-[200] items-center justify-center p-4 backdrop-blur-md">
-        <div class="bg-slate-900 border-2 border-indigo-500 rounded-3xl w-full max-w-sm p-6 shadow-2xl">
+    <!-- Modal Loja -->
+    <div id="shop-modal" class="fixed inset-0 bg-black/95 hidden z-[500] items-center justify-center p-6 backdrop-blur-xl">
+        <div class="bg-slate-900 border-2 border-indigo-500 rounded-3xl w-full max-w-sm p-6 flex flex-col max-h-[85vh] shadow-2xl">
             <div class="flex justify-between items-center mb-6">
                 <div>
-                    <h3 class="text-2xl font-bold text-white">Gatos</h3>
-                    <p class="text-sm text-yellow-400 font-bold" id="modal-coins">🐁 0</p>
+                    <h3 class="text-2xl font-bold text-white">Loja de Animais</h3>
+                    <p class="text-yellow-400 text-sm font-bold">Saldo: 🐁 <span id="shop-coins">0</span></p>
                 </div>
-                <button id="close-skins" class="text-3xl text-slate-400 hover:text-white">&times;</button>
+                <button id="close-shop" class="text-4xl text-slate-500 hover:text-white">&times;</button>
             </div>
-            <div id="skins-grid" class="grid grid-cols-3 gap-3 max-h-[350px] overflow-y-auto pr-2"></div>
+            <div id="skins-container" class="grid grid-cols-3 gap-4 overflow-y-auto pr-2 pb-4">
+                <!-- Skins aqui -->
+            </div>
         </div>
     </div>
 
     <script>
-        // Sistema de Áudio
-        let audioCtx;
-        function initAudio() {
-            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        }
-
-        function playSound(freq, type, duration, vol = 0.1) {
-            if (!audioCtx) return;
-            const osc = audioCtx.createOscillator();
-            const gain = audioCtx.createGain();
-            osc.type = type;
-            osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
-            gain.gain.setValueAtTime(vol, audioCtx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
-            osc.connect(gain);
-            gain.connect(audioCtx.destination);
-            osc.start();
-            osc.stop(audioCtx.currentTime + duration);
-        }
-
-        const sounds = {
-            move: () => playSound(180, 'sine', 0.1, 0.05),
-            coin: () => {
-                playSound(900, 'square', 0.1, 0.04);
-                setTimeout(() => playSound(1300, 'square', 0.1, 0.04), 40);
-            },
-            win: () => {
-                [523, 659, 783, 1046].forEach((n, i) => setTimeout(() => playSound(n, 'triangle', 0.5, 0.08), i * 120));
-            }
-        };
-
-        // Estado do Jogo
         const canvas = document.getElementById('game-canvas');
         const ctx = canvas.getContext('2d');
-        let level = 1, totalCoins = 0, gridSize = 11, cellSize = 0;
-        let maze = [], coins = [], player = { x: 1, y: 1 }, goal = { x: 0, y: 0 };
+        let level = 1, score = 0, gridSize = 13, cellSize = 0;
+        let maze = [], ghosts = [], items = [], fish = { x: 0, y: 0 };
+        let isGameReady = false;
+
+        const skins = [
+            { id: 0, emoji: '🐱', name: 'Gato', price: 0, unlocked: true },
+            { id: 1, emoji: '🐶', name: 'Cão', price: 15, unlocked: false },
+            { id: 2, emoji: '🐰', name: 'Coelho', price: 30, unlocked: false },
+            { id: 3, emoji: '🦊', name: 'Raposa', price: 60, unlocked: false },
+            { id: 4, emoji: '🐯', name: 'Tigre', price: 150, unlocked: false },
+            { id: 5, emoji: '🦄', name: 'Unicórnio', price: 500, unlocked: false }
+        ];
         let currentSkinIndex = 0;
 
-        const catSkins = [
-            { emoji: '🐱', name: 'Original', unlocked: true, price: 0 },
-            { emoji: '🐈', name: 'Laranja', unlocked: false, price: 10 },
-            { emoji: '🐈‍⬛', name: 'Ninja', unlocked: false, price: 30 },
-            { emoji: '🦁', name: 'Simba', unlocked: false, price: 60 },
-            { emoji: '🐯', name: 'Tigre', unlocked: false, price: 100 },
-            { emoji: '😸', name: 'Dourado', unlocked: false, price: 200 },
-            { emoji: '😻', name: 'Amor', unlocked: false, price: 350 },
-            { emoji: '👻', name: 'Fantasma', unlocked: false, price: 500 },
-            { emoji: '👽', name: 'Alien', unlocked: false, price: 750 },
-            { emoji: '👑', name: 'Rei', unlocked: false, price: 1000 }
-        ];
+        let player = { x: 1, y: 1, shield: false, strength: false };
+
+        window.onload = () => {
+            document.getElementById('progress-bar').style.width = '100%';
+            setTimeout(() => {
+                document.getElementById('splash-screen').style.opacity = '0';
+                setTimeout(() => {
+                    document.getElementById('splash-screen').style.display = 'none';
+                    initGame();
+                }, 600);
+            }, 1800);
+        };
+
+        function initGame() {
+            isGameReady = false;
+            // Aumenta o tamanho conforme o nível
+            gridSize = 11 + (Math.floor((level - 1) / 2) * 2);
+            if (gridSize > 23) gridSize = 23;
+            
+            generateMaze(gridSize);
+            resize();
+            
+            document.getElementById('level-ui').innerText = `NÍVEL ${level}`;
+            document.getElementById('win-screen').classList.add('hidden');
+            updateUI();
+            
+            isGameReady = true;
+        }
 
         function generateMaze(size) {
-            let m = Array(size).fill().map(() => Array(size).fill(1));
-            let path = [];
-            function walk(x, y) {
-                m[y][x] = 0;
-                path.push({x, y});
-                let dirs = [[0, -2], [0, 2], [-2, 0], [2, 0]].sort(() => Math.random() - 0.5);
-                for (let [dx, dy] of dirs) {
-                    let nx = x + dx, ny = y + dy;
-                    if (nx > 0 && nx < size - 1 && ny > 0 && ny < size - 1 && m[ny][nx] === 1) {
-                        m[y + dy/2][x + dx/2] = 0;
-                        path.push({x: x + dx/2, y: y + dy/2});
-                        walk(nx, ny);
+            maze = Array(size).fill().map(() => Array(size).fill(1));
+            const stack = [{x: 1, y: 1}];
+            maze[1][1] = 0;
+
+            while (stack.length > 0) {
+                const curr = stack[stack.length - 1];
+                const neighbors = [];
+                [[0,-2],[0,2],[-2,0],[2,0]].forEach(([dx,dy]) => {
+                    const nx = curr.x+dx, ny = curr.y+dy;
+                    if (nx>0 && nx<size-1 && ny>0 && ny<size-1 && maze[ny][nx]===1) 
+                        neighbors.push({x:nx, y:ny, dx, dy});
+                });
+                if (neighbors.length > 0) {
+                    const next = neighbors[Math.floor(Math.random()*neighbors.length)];
+                    maze[next.y][next.x] = 0;
+                    maze[curr.y+next.dy/2][curr.x+next.dx/2] = 0;
+                    stack.push(next);
+                } else stack.pop();
+            }
+
+            // Criar atalhos e caminhos extras
+            for(let i=0; i < size; i++) {
+                let rx = Math.floor(Math.random()*(size-2))+1;
+                let ry = Math.floor(Math.random()*(size-2))+1;
+                if (maze[ry]) maze[ry][rx] = 0;
+            }
+
+            items = []; ghosts = [];
+            // Spawn de Itens e VILÕES
+            for (let y = 1; y < size-1; y++) {
+                for (let x = 1; x < size-1; x++) {
+                    if (maze[y][x] === 0 && !(x===1 && y===1)) {
+                        const r = Math.random();
+                        // Itens
+                        if (r < 0.12) items.push({x, y, type: 'rat'});
+                        else if (r < 0.14) items.push({x, y, type: Math.random() > 0.5 ? 'shield' : 'fist'});
+                        
+                        // FANTASMAS (Vilões) - Probabilidade ajustada para garantir presença
+                        const distToSpawn = Math.abs(x - 1) + Math.abs(y - 1);
+                        if (r > 0.96 && distToSpawn > 5) {
+                            ghosts.push({ x, y, startX: x, startY: y });
+                        }
                     }
                 }
             }
-            walk(1, 1);
-            let g = { x: size - 2, y: size - 2 };
-            m[g.y][g.x] = 0;
-            let rats = path.filter(n => (n.x !== 1 || n.y !== 1) && (n.x !== g.x || n.y !== g.y) && Math.random() < 0.25);
-            return { m, g, rats };
-        }
 
-        function initLevel() {
-            gridSize = 9 + (Math.floor(level / 2) * 2);
-            if (gridSize > 21) gridSize = 21;
-            const data = generateMaze(gridSize);
-            maze = data.m; goal = data.g; coins = data.rats; player = { x: 1, y: 1 };
-            resize();
-            draw();
-            document.getElementById('win-overlay').classList.add('hidden');
-            document.getElementById('level-display').innerText = `NÍVEL ${level}`;
-            updateUI();
+            // Garantir pelo menos 1 fantasma em níveis superiores a 1
+            if (ghosts.length === 0 && level > 1) {
+                ghosts.push({ x: size-3, y: size-3, startX: size-3, startY: size-3 });
+            }
+
+            fish = { x: size-2, y: size-2 };
+            maze[fish.y][fish.x] = 0;
+            player.x = 1; player.y = 1;
+            player.shield = false; player.strength = false;
         }
 
         function resize() {
-            const size = Math.min(window.innerWidth - 40, 420);
-            canvas.width = size; canvas.height = size;
-            cellSize = size / gridSize;
+            const dim = Math.min(window.innerWidth - 40, 420);
+            canvas.width = dim;
+            canvas.height = dim;
+            cellSize = dim / gridSize;
+            render();
         }
 
-        function draw() {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        function render() {
+            if (!isGameReady || !maze || maze.length === 0) return;
+
+            ctx.clearRect(0,0, canvas.width, canvas.height);
             
-            // Labirinto
-            for (let y = 0; y < gridSize; y++) {
-                for (let x = 0; x < gridSize; x++) {
+            // Paredes (Neon Indigo)
+            ctx.shadowBlur = 0;
+            for (let y=0; y<gridSize; y++) {
+                if (!maze[y]) continue;
+                for (let x=0; x<gridSize; x++) {
                     if (maze[y][x] === 1) {
-                        ctx.fillStyle = "#312e81";
+                        ctx.fillStyle = '#312e81';
                         ctx.beginPath();
-                        ctx.roundRect(x * cellSize + 2, y * cellSize + 2, cellSize - 4, cellSize - 4, 4);
+                        ctx.roundRect(x*cellSize+2, y*cellSize+2, cellSize-4, cellSize-4, 5);
                         ctx.fill();
-                        ctx.strokeStyle = "#6366f1";
-                        ctx.lineWidth = 1;
-                        ctx.stroke();
+                        
+                        // Detalhe de luz no topo
+                        ctx.fillStyle = '#4338ca';
+                        ctx.fillRect(x*cellSize+4, y*cellSize+4, cellSize-8, 2);
                     }
                 }
             }
 
-            // Moedas/Ratos
-            ctx.font = `${cellSize * 0.5}px Arial`;
-            coins.forEach(c => {
-                ctx.shadowBlur = 8; ctx.shadowColor = "yellow";
-                ctx.fillText("🐁", c.x * cellSize + cellSize/2, c.y * cellSize + cellSize/2);
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            
+            // Itens
+            items.forEach(it => {
+                ctx.font = `${cellSize*0.6}px Arial`;
+                const emoji = it.type === 'rat' ? '🐁' : (it.type === 'shield' ? '🛡️' : '👊');
+                ctx.fillText(emoji, it.x*cellSize+cellSize/2, it.y*cellSize+cellSize/2);
             });
 
-            // Meta
-            ctx.shadowBlur = 10; ctx.shadowColor = "cyan";
-            ctx.font = `${cellSize * 0.7}px Arial`;
-            ctx.fillText("🐟", goal.x * cellSize + cellSize/2, goal.y * cellSize + cellSize/2);
+            // Peixe (Meta)
+            ctx.font = `${cellSize*0.8}px Arial`;
+            ctx.fillText('🐟', fish.x*cellSize+cellSize/2, fish.y*cellSize+cellSize/2);
 
-            // Gato
-            ctx.shadowBlur = 15; ctx.shadowColor = "white";
-            ctx.font = `${cellSize * 0.8}px Arial`;
-            ctx.fillText(catSkins[currentSkinIndex].emoji, player.x * cellSize + cellSize/2, player.y * cellSize + cellSize/2);
-            ctx.shadowBlur = 0;
+            // FANTASMAS (Vilões)
+            ghosts.forEach(g => {
+                ctx.font = `${cellSize*0.75}px Arial`;
+                ctx.shadowColor = 'white';
+                ctx.shadowBlur = 5;
+                ctx.fillText('👻', g.x*cellSize+cellSize/2, g.y*cellSize+cellSize/2);
+                ctx.shadowBlur = 0;
+            });
+
+            // Player (Skin Selecionada)
+            ctx.save();
+            if (player.shield) {
+                ctx.beginPath();
+                ctx.arc(player.x*cellSize+cellSize/2, player.y*cellSize+cellSize/2, cellSize/1.4, 0, Math.PI*2);
+                ctx.strokeStyle = '#00f2ff'; ctx.lineWidth = 3; ctx.stroke();
+            }
+            if (player.strength) {
+                ctx.shadowColor = '#ff4400'; ctx.shadowBlur = 10;
+            }
+            ctx.font = `${cellSize*0.8}px Arial`;
+            ctx.fillText(skins[currentSkinIndex].emoji, player.x*cellSize+cellSize/2, player.y*cellSize+cellSize/2);
+            ctx.restore();
         }
 
-        function move(dx, dy) {
-            if (!document.getElementById('win-overlay').classList.contains('hidden')) return;
-            initAudio();
-            if (audioCtx.state === 'suspended') audioCtx.resume();
-
+        function tryMove(dx, dy) {
+            if (!isGameReady || document.getElementById('win-screen').classList.contains('flex')) return;
             let nx = player.x + dx, ny = player.y + dy;
-            if (nx >= 0 && nx < gridSize && ny >= 0 && ny < gridSize && maze[ny][nx] === 0) {
-                player.x = nx; player.y = ny;
-                sounds.move();
-                
-                const cIdx = coins.findIndex(c => c.x === nx && c.y === ny);
-                if (cIdx !== -1) {
-                    coins.splice(cIdx, 1);
-                    totalCoins++;
-                    sounds.coin();
-                    updateUI();
+            
+            if (nx >= 0 && nx < gridSize && ny >= 0 && ny < gridSize) {
+                // Habilidade de quebrar paredes (Punho)
+                if (maze[ny] && maze[ny][nx] === 1 && player.strength) {
+                    maze[ny][nx] = 0;
                 }
                 
-                draw();
-                if (player.x === goal.x && player.y === goal.y) {
-                    totalCoins += (level * 5);
-                    sounds.win();
-                    updateUI();
-                    document.getElementById('new-skin-preview').innerText = catSkins[currentSkinIndex].emoji;
-                    document.getElementById('win-overlay').classList.remove('hidden');
+                if (maze[ny] && maze[ny][nx] === 0) {
+                    player.x = nx; player.y = ny;
+                    checkCollisions();
+                    render();
                 }
             }
         }
 
-        function updateUI() {
-            document.getElementById('coin-display').innerText = `🐁 ${totalCoins}`;
-            document.getElementById('modal-coins').innerText = `🐁 ${totalCoins}`;
-        }
-
-        function renderSkins() {
-            const grid = document.getElementById('skins-grid');
-            grid.innerHTML = '';
-            catSkins.forEach((s, i) => {
-                const d = document.createElement('div');
-                const sel = currentSkinIndex === i;
-                d.className = `p-3 rounded-2xl border-2 cursor-pointer text-center ${sel ? 'border-indigo-400 bg-indigo-900/40' : 'border-slate-800 bg-slate-800'}`;
-                if (s.unlocked) {
-                    d.innerHTML = `<div class="text-3xl">${s.emoji}</div><div class="text-[8px] uppercase mt-1">${s.name}</div>`;
-                    d.onclick = () => { currentSkinIndex = i; sounds.move(); renderSkins(); draw(); };
-                } else {
-                    d.innerHTML = `<div class="text-3xl grayscale opacity-30">${s.emoji}</div><div class="bg-yellow-500 text-black text-[9px] font-bold rounded px-1 mt-1">🐁 ${s.price}</div>`;
-                    d.onclick = () => {
-                        if (totalCoins >= s.price) {
-                            totalCoins -= s.price; s.unlocked = true; currentSkinIndex = i;
-                            updateUI(); renderSkins(); draw();
-                        }
-                    };
+        function checkCollisions() {
+            // Coleta de itens
+            items = items.filter(it => {
+                if (it.x === player.x && it.y === player.y) {
+                    if (it.type === 'rat') { score++; updateUI(); }
+                    else activatePower(it.type);
+                    return false;
                 }
-                grid.appendChild(d);
+                return true;
             });
+
+            // Colisão com FANTASMAS
+            ghosts.forEach(g => {
+                const dist = Math.sqrt(Math.pow(g.x - player.x, 2) + Math.pow(g.y - player.y, 2));
+                if (dist < 0.6) {
+                    if (player.shield) {
+                        player.shield = false;
+                        // Repulsa o fantasma para longe
+                        g.x = g.startX; g.y = g.startY;
+                    } else {
+                        // Perdeu: volta ao início do nível
+                        player.x = 1; player.y = 1;
+                    }
+                }
+            });
+
+            // Vitória
+            if (player.x === fish.x && player.y === fish.y) {
+                document.getElementById('win-screen').style.display = 'flex';
+                document.getElementById('win-screen').classList.remove('hidden');
+            }
         }
 
-        // Botoes
-        document.getElementById('ctrl-up').onclick = () => move(0, -1);
-        document.getElementById('ctrl-down').onclick = () => move(0, 1);
-        document.getElementById('ctrl-left').onclick = () => move(-1, 0);
-        document.getElementById('ctrl-right').onclick = () => move(1, 0);
-        
-        window.onkeydown = (e) => {
-            if (e.key === 'ArrowUp') move(0, -1);
-            if (e.key === 'ArrowDown') move(0, 1);
-            if (e.key === 'ArrowLeft') move(-1, 0);
-            if (e.key === 'ArrowRight') move(1, 0);
+        function activatePower(type) {
+            if (type==='shield') player.shield = true;
+            if (type==='fist') player.strength = true;
+            setTimeout(() => {
+                if(type==='fist') player.strength = false;
+                render();
+            }, 7000);
+        }
+
+        function updateUI() {
+            document.getElementById('coin-ui').innerText = `🐁 ${score}`;
+            document.getElementById('shop-coins').innerText = score;
+        }
+
+        function openShop() {
+            const container = document.getElementById('skins-container');
+            container.innerHTML = '';
+            skins.forEach((skin, idx) => {
+                const card = document.createElement('div');
+                card.className = `skin-card p-3 text-center cursor-pointer ${currentSkinIndex === idx ? 'selected' : ''} ${!skin.unlocked ? 'locked' : ''}`;
+                card.innerHTML = `
+                    <div class="text-3xl mb-1">${skin.emoji}</div>
+                    <div class="text-[10px] font-bold uppercase truncate text-white">${skin.name}</div>
+                    ${!skin.unlocked ? `<div class="text-[10px] text-yellow-400 mt-1 font-black">🐁 ${skin.price}</div>` : `<div class="text-[9px] text-indigo-400 mt-1 uppercase">Pronto</div>`}
+                `;
+                card.onclick = () => {
+                    if (skin.unlocked) { 
+                        currentSkinIndex = idx; 
+                        openShop(); 
+                        render(); 
+                    } else if (score >= skin.price) {
+                        score -= skin.price; 
+                        skin.unlocked = true; 
+                        currentSkinIndex = idx;
+                        updateUI(); openShop(); render();
+                    }
+                };
+                container.appendChild(card);
+            });
+            document.getElementById('shop-modal').classList.replace('hidden', 'flex');
+        }
+
+        // CICLO DOS VILÕES (Fantasmas perseguidores)
+        setInterval(() => {
+            if (!isGameReady || document.getElementById('win-screen').classList.contains('flex')) return;
+            
+            ghosts.forEach(g => {
+                const dx = player.x - g.x;
+                const dy = player.y - g.y;
+                
+                // Velocidade aumenta conforme o nível
+                const ghostSpeed = 0.02 + (level * 0.005);
+                const limitSpeed = 0.06;
+                const speed = Math.min(ghostSpeed, limitSpeed);
+
+                g.x += Math.sign(dx) * speed;
+                g.y += Math.sign(dy) * speed;
+            });
+            
+            checkCollisions();
+            render();
+        }, 100);
+
+        // Controlos de toque e clique
+        const bind = (id, dx, dy) => {
+            const el = document.getElementById(id);
+            el.addEventListener('pointerdown', (e) => {
+                e.preventDefault();
+                tryMove(dx, dy);
+            });
         };
 
-        document.getElementById('next-level').onclick = () => { level++; initLevel(); };
-        document.getElementById('open-skins').onclick = () => { renderSkins(); document.getElementById('skins-modal').classList.replace('hidden', 'flex'); };
-        document.getElementById('close-skins').onclick = () => document.getElementById('skins-modal').classList.replace('flex', 'hidden');
+        bind('btn-up', 0, -1); bind('btn-down', 0, 1);
+        bind('btn-left', -1, 0); bind('btn-right', 1, 0);
 
+        // Teclado
+        window.onkeydown = (e) => {
+            if(e.key === 'ArrowUp') tryMove(0, -1);
+            if(e.key === 'ArrowDown') tryMove(0, 1);
+            if(e.key === 'ArrowLeft') tryMove(-1, 0);
+            if(e.key === 'ArrowRight') tryMove(1, 0);
+        };
+
+        document.getElementById('btn-skins').onclick = openShop;
+        document.getElementById('close-shop').onclick = () => document.getElementById('shop-modal').classList.replace('flex', 'hidden');
+        document.getElementById('btn-next').onclick = () => { 
+            level++; 
+            initGame(); 
+            document.getElementById('win-screen').style.display = 'none';
+        };
         window.onresize = resize;
-        initLevel();
     </script>
 </body>
 </html>
