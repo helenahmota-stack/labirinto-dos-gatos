@@ -1,429 +1,469 @@
-<!DOCTYPE html>
-<html lang="pt-br">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Cat Maze DX - Helena Games Edition</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        body {
-            background: radial-gradient(circle, #1e1b4b 0%, #0f172a 100%);
-            color: white;
-            user-select: none;
-            touch-action: none;
-            overflow: hidden;
-            margin: 0;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            min-height: 100vh;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        }
-        #game-canvas {
-            image-rendering: auto;
-            max-width: 100%;
-            height: auto;
-            background: rgba(15, 23, 42, 0.95);
-            border: 3px solid #6366f1;
-            border-radius: 16px;
-            box-shadow: 0 0 25px rgba(99, 102, 241, 0.4);
-        }
-        .btn-control {
-            width: 70px;
-            height: 70px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(10px);
-            border-radius: 20px;
-            border: 2px solid rgba(129, 140, 248, 0.3);
-            font-size: 2rem;
-            cursor: pointer;
-            transition: all 0.1s;
-            box-shadow: 0 4px 0 rgba(0,0,0,0.3);
-        }
-        .btn-control:active { 
-            background: #4f46e5; 
-            transform: translateY(4px); 
-            box-shadow: 0 0px 0 rgba(0,0,0,0.3);
-        }
-        .neon-text { text-shadow: 0 0 15px rgba(99, 102, 241, 0.8), 0 0 30px rgba(79, 70, 229, 0.5); }
-        
-        #splash-screen {
-            position: fixed;
-            inset: 0;
-            background: #0f172a;
-            z-index: 1000;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            text-align: center;
-            transition: opacity 0.6s ease;
-        }
+import React, { useState, useEffect, useRef } from 'react';
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
+import { getFirestore, doc, setDoc, getDoc, onSnapshot } from 'firebase/firestore';
 
-        .credit-text {
-            font-size: 0.65rem;
-            letter-spacing: 0.15rem;
-            color: rgba(129, 140, 248, 0.6);
-            margin-top: 1.5rem;
-            text-transform: uppercase;
-            font-weight: 300;
-        }
+const firebaseConfig = JSON.parse(__firebase_config);
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'helena-games-dx';
 
-        .skin-card {
-            background: rgba(30, 41, 59, 0.9);
-            border: 2px solid transparent;
-            border-radius: 12px;
-            transition: all 0.2s;
-        }
-        .skin-card.selected { border-color: #818cf8; background: rgba(79, 70, 229, 0.4); }
-        .skin-card.locked { opacity: 0.5; }
-        
-        .scrollbar-hide::-webkit-scrollbar { display: none; }
-    </style>
-</head>
-<body class="p-4">
+const App = () => {
+  const canvasRef = useRef(null);
+  const [user, setUser] = useState(null);
+  const [level, setLevel] = useState(1);
+  const [score, setScore] = useState(0);
+  const [unlockedSkins, setUnlockedSkins] = useState([0]);
+  const [currentSkin, setCurrentSkin] = useState(0);
+  const [showShop, setShowShop] = useState(false);
+  const [showWin, setShowWin] = useState(false);
+  
+  // Refs para lógica de jogo e movimento
+  const gameState = useRef({
+    gridSize: 11,
+    cellSize: 0,
+    maze: [],
+    player: { x: 1, y: 1, shield: false, strength: false, speed: false },
+    ghosts: [],
+    items: [],
+    fish: { x: 0, y: 0 },
+    isReady: false,
+    moveInterval: null,
+    activeDir: { dx: 0, dy: 0 }
+  });
 
-    <!-- Splash Screen -->
-    <div id="splash-screen">
-        <div class="animate-pulse">
-            <h1 class="text-6xl font-black italic tracking-tighter neon-text mb-2">HELENA GAMES</h1>
-            <div class="w-full max-w-[200px] h-1 bg-indigo-900/50 rounded-full overflow-hidden mx-auto mt-4">
-                <div id="progress-bar" class="w-0 h-full bg-indigo-500 transition-all duration-1000"></div>
-            </div>
-            <p class="credit-text">Desenvolvido por Helena Mota Moreira</p>
+  const skins = [
+    { id: 0, emoji: '🐱', name: 'Gato', price: 0 },
+    { id: 1, emoji: '🐶', name: 'Cão', price: 20 },
+    { id: 2, emoji: '🐰', name: 'Coelho', price: 50 },
+    { id: 3, emoji: '🦊', name: 'Raposa', price: 100 },
+    { id: 4, emoji: '🐯', name: 'Tigre', price: 200 },
+    { id: 5, emoji: '🦁', name: 'Leão', price: 400 },
+    { id: 6, emoji: '🐲', name: 'Dragão', price: 800 },
+    { id: 7, emoji: '🦄', name: 'Unicórnio', price: 1500 }
+  ];
+
+  const playSound = (f, t, d, v) => {
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.type = t;
+    o.frequency.setValueAtTime(f, audioCtx.currentTime);
+    g.gain.setValueAtTime(v, audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + d);
+    o.connect(g); g.connect(audioCtx.destination);
+    o.start(); o.stop(audioCtx.currentTime + d);
+  };
+
+  const sfx = {
+    move: () => playSound(150, 'sine', 0.1, 0.05),
+    coin: () => playSound(900, 'triangle', 0.15, 0.1),
+    power: () => playSound(600, 'sine', 0.4, 0.1),
+    win: () => playSound(523, 'square', 0.5, 0.1),
+    hit: () => playSound(100, 'sawtooth', 0.3, 0.1)
+  };
+
+  // Auth & Cloud Save
+  useEffect(() => {
+    const initAuth = async () => {
+      if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+        await signInWithCustomToken(auth, __initial_auth_token);
+      } else {
+        await signInAnonymously(auth);
+      }
+    };
+    initAuth();
+    const unsubscribe = onAuthStateChanged(auth, (u) => setUser(u));
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    const userDocRef = doc(db, 'artifacts', appId, 'users', user.uid, 'saveData', 'progress');
+    getDoc(userDocRef).then((snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        setLevel(data.level || 1);
+        setScore(data.score || 0);
+        setUnlockedSkins(data.unlockedSkins || [0]);
+        setCurrentSkin(data.currentSkin || 0);
+      }
+    });
+  }, [user]);
+
+  const saveProgress = async (newLevel, newScore, newSkins, newCurrentSkin) => {
+    if (!user) return;
+    const userDocRef = doc(db, 'artifacts', appId, 'users', user.uid, 'saveData', 'progress');
+    await setDoc(userDocRef, {
+      level: newLevel ?? level,
+      score: newScore ?? score,
+      unlockedSkins: newSkins ?? unlockedSkins,
+      currentSkin: newCurrentSkin ?? currentSkin,
+      updatedAt: Date.now()
+    }, { merge: true });
+  };
+
+  const generateMaze = (lvl) => {
+    const size = 11 + (Math.floor((lvl - 1) / 3) * 2);
+    const m = Array(size).fill().map(() => Array(size).fill(1));
+    const stack = [{ x: 1, y: 1 }];
+    m[1][1] = 0;
+
+    while (stack.length > 0) {
+      const curr = stack[stack.length - 1];
+      const neighbors = [];
+      [[0, -2], [0, 2], [-2, 0], [2, 0]].forEach(([dx, dy]) => {
+        const nx = curr.x + dx, ny = curr.y + dy;
+        if (nx > 0 && nx < size - 1 && ny > 0 && ny < size - 1 && m[ny][nx] === 1)
+          neighbors.push({ x: nx, y: ny, dx, dy });
+      });
+      if (neighbors.length > 0) {
+        const next = neighbors[Math.floor(Math.random() * neighbors.length)];
+        m[next.y][next.x] = 0;
+        m[curr.y + next.dy / 2][curr.x + next.dx / 2] = 0;
+        stack.push(next);
+      } else stack.pop();
+    }
+
+    const items = [];
+    const ghosts = [];
+    const maxGhosts = Math.min(1 + Math.floor(lvl / 5), 3);
+
+    for (let y = 1; y < size - 1; y++) {
+      for (let x = 1; x < size - 1; x++) {
+        if (m[y][x] === 0 && !(x === 1 && y === 1)) {
+          const r = Math.random();
+          if (r < 0.25) items.push({ x, y, type: 'rat' });
+          else if (r < 0.27) items.push({ x, y, type: 'shield' });
+          else if (r < 0.29) items.push({ x, y, type: 'fist' });
+          else if (r < 0.32) items.push({ x, y, type: 'speed' });
+
+          const dist = Math.abs(x - 1) + Math.abs(y - 1);
+          if (r > 0.99 && dist > 8 && ghosts.length < maxGhosts) {
+            ghosts.push({ x, y, startX: x, startY: y });
+          }
+        }
+      }
+    }
+
+    gameState.current = {
+      ...gameState.current,
+      gridSize: size,
+      maze: m,
+      items,
+      ghosts,
+      fish: { x: size - 2, y: size - 2 },
+      player: { x: 1, y: 1, shield: false, strength: false, speed: false },
+      isReady: true
+    };
+    render();
+  };
+
+  const render = () => {
+    const cvs = canvasRef.current;
+    if (!cvs || !gameState.current.isReady) return;
+    const ctx = cvs.getContext('2d');
+    const { maze, gridSize, cellSize, items, ghosts, fish, player } = gameState.current;
+
+    ctx.clearRect(0, 0, cvs.width, cvs.height);
+    maze.forEach((row, y) => {
+      row.forEach((cell, x) => {
+        if (cell === 1) {
+          ctx.fillStyle = '#1e1b4b';
+          ctx.beginPath();
+          ctx.roundRect(x * cellSize + 1, y * cellSize + 1, cellSize - 2, cellSize - 2, 4);
+          ctx.fill();
+        }
+      });
+    });
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    items.forEach(it => {
+      ctx.font = `${cellSize * 0.7}px Arial`;
+      const icons = { rat: '🐁', shield: '🛡️', fist: '👊', speed: '⚡' };
+      ctx.fillText(icons[it.type], it.x * cellSize + cellSize / 2, it.y * cellSize + cellSize / 2);
+    });
+
+    ctx.font = `${cellSize * 0.9}px Arial`;
+    ctx.fillText('🐟', fish.x * cellSize + cellSize / 2, fish.y * cellSize + cellSize / 2);
+
+    ghosts.forEach(g => {
+      ctx.font = `${cellSize * 0.8}px Arial`;
+      ctx.fillText('👻', g.x * cellSize + cellSize / 2, g.y * cellSize + cellSize / 2);
+    });
+
+    ctx.save();
+    if (player.shield) {
+      ctx.beginPath();
+      ctx.arc(player.x * cellSize + cellSize / 2, player.y * cellSize + cellSize / 2, cellSize / 1.4, 0, Math.PI * 2);
+      ctx.strokeStyle = '#00f2ff'; ctx.lineWidth = 3; ctx.stroke();
+    }
+    if (player.speed) {
+      ctx.shadowColor = '#fbbf24'; ctx.shadowBlur = 15;
+    }
+    ctx.font = `${cellSize * 0.8}px Arial`;
+    ctx.fillText(skins[currentSkin].emoji, player.x * cellSize + cellSize / 2, player.y * cellSize + cellSize / 2);
+    ctx.restore();
+  };
+
+  // Função principal de movimento
+  const executeMove = (dx, dy) => {
+    const gs = gameState.current;
+    if (!gs.isReady || showWin) return;
+
+    let nx = gs.player.x + dx;
+    let ny = gs.player.y + dy;
+
+    if (nx >= 0 && nx < gs.gridSize && ny >= 0 && ny < gs.gridSize) {
+      if (gs.maze[ny][nx] === 1) {
+        if (gs.player.strength) gs.maze[ny][nx] = 0;
+        else return;
+      }
+      gs.player.x = nx;
+      gs.player.y = ny;
+      sfx.move();
+      checkCollisions();
+      render();
+    }
+  };
+
+  // Sistema de pressionar e segurar
+  const startMoving = (dx, dy) => {
+    if (gameState.current.moveInterval) return;
+    
+    // Executa o primeiro movimento imediatamente
+    executeMove(dx, dy);
+    
+    // Define o tempo entre passos (mais rápido com power-up de velocidade)
+    const getDelay = () => gameState.current.player.speed ? 80 : 200;
+
+    const intervalFunc = () => {
+      executeMove(dx, dy);
+      clearInterval(gameState.current.moveInterval);
+      gameState.current.moveInterval = setInterval(intervalFunc, getDelay());
+    };
+
+    gameState.current.moveInterval = setInterval(intervalFunc, getDelay());
+  };
+
+  const stopMoving = () => {
+    clearInterval(gameState.current.moveInterval);
+    gameState.current.moveInterval = null;
+  };
+
+  const checkCollisions = () => {
+    const gs = gameState.current;
+    gs.items = gs.items.filter(it => {
+      if (it.x === gs.player.x && it.y === gs.player.y) {
+        if (it.type === 'rat') {
+          setScore(s => {
+            const newS = s + 1;
+            saveProgress(level, newS);
+            return newS;
+          });
+          sfx.coin();
+        } else {
+          gs.player[it.type] = true;
+          sfx.power();
+          setTimeout(() => {
+            gs.player[it.type] = false;
+            render();
+          }, 8000);
+        }
+        return false;
+      }
+      return true;
+    });
+
+    if (gs.player.x === gs.fish.x && gs.player.y === gs.fish.y) {
+      sfx.win();
+      setShowWin(true);
+      stopMoving();
+    }
+  };
+
+  // Loop dos Fantasmas
+  useEffect(() => {
+    if (gameState.current.isReady) {
+      const interval = setInterval(() => {
+        if (showWin) return;
+        const gs = gameState.current;
+        gs.ghosts.forEach(g => {
+          const dx = gs.player.x - g.x;
+          const dy = gs.player.y - g.y;
+          const speed = 0.015 + (level * 0.002);
+          g.x += Math.sign(dx) * speed;
+          g.y += Math.sign(dy) * speed;
+
+          if (Math.abs(g.x - gs.player.x) < 0.5 && Math.abs(g.y - gs.player.y) < 0.5) {
+            if (gs.player.shield) {
+              gs.player.shield = false;
+              g.x = g.startX; g.y = g.startY;
+            } else {
+              gs.player.x = 1; gs.player.y = 1;
+            }
+            sfx.hit();
+          }
+        });
+        render();
+      }, 50);
+      return () => clearInterval(interval);
+    }
+  }, [level, showWin]);
+
+  useEffect(() => {
+    const handleResize = () => {
+      const dim = Math.min(window.innerWidth - 40, 400);
+      canvasRef.current.width = dim;
+      canvasRef.current.height = dim;
+      gameState.current.cellSize = dim / gameState.current.gridSize;
+      render();
+    };
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    generateMaze(level);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [level, currentSkin]);
+
+  // Teclado
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.repeat) return;
+      if (e.key === 'ArrowUp') startMoving(0, -1);
+      if (e.key === 'ArrowDown') startMoving(0, 1);
+      if (e.key === 'ArrowLeft') startMoving(-1, 0);
+      if (e.key === 'ArrowRight') startMoving(1, 0);
+    };
+    const handleKeyUp = () => stopMoving();
+    
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, []);
+
+  const buySkin = (index) => {
+    const skin = skins[index];
+    if (unlockedSkins.includes(index)) {
+      setCurrentSkin(index);
+      saveProgress(level, score, unlockedSkins, index);
+    } else if (score >= skin.price) {
+      const newScore = score - skin.price;
+      const newSkins = [...unlockedSkins, index];
+      setScore(newScore);
+      setUnlockedSkins(newSkins);
+      setCurrentSkin(index);
+      saveProgress(level, newScore, newSkins, index);
+    }
+  };
+
+  return (
+    <div className="flex flex-col items-center justify-center min-h-screen bg-slate-950 p-4 text-white font-sans">
+      {/* HUD */}
+      <div className="w-full max-w-[400px] flex justify-between items-end mb-4 px-2">
+        <div className="flex flex-col">
+          <span className="text-[9px] text-indigo-500 font-mono tracking-tighter">CLOUD SAVE: {user?.uid.slice(0,6)}</span>
+          <span className="text-xs font-black text-indigo-400 italic">NÍVEL {level}</span>
+          <span className="text-3xl font-black text-yellow-400 drop-shadow-lg">🐁 {score}</span>
         </div>
-    </div>
-
-    <!-- Interface -->
-    <div class="w-full max-w-md flex justify-between items-center mb-4">
-        <div class="flex flex-col">
-            <span id="level-ui" class="text-xs font-bold text-indigo-400 tracking-wider uppercase italic">Nível 1</span>
-            <span id="coin-ui" class="text-2xl font-black text-yellow-400 drop-shadow-md">🐁 0</span>
-        </div>
-        <button id="btn-skins" class="bg-indigo-600 px-5 py-2 rounded-xl font-bold text-sm shadow-lg hover:bg-indigo-500 active:scale-95 transition-all uppercase tracking-widest border-b-4 border-indigo-800">
-            Miau Shop 🐾
+        <button 
+          onClick={() => setShowShop(true)}
+          className="bg-indigo-600 px-4 py-2 rounded-xl font-bold shadow-[0_4px_0_rgb(30,27,75)] active:translate-y-1 active:shadow-none transition-all text-sm uppercase tracking-wider"
+        >
+          Miau Shop 🐾
         </button>
-    </div>
+      </div>
 
-    <!-- Arena -->
-    <div class="relative w-full max-w-md">
-        <canvas id="game-canvas"></canvas>
+      {/* Arena */}
+      <div className="relative group">
+        <canvas ref={canvasRef} className="rounded-3xl border-4 border-indigo-900 shadow-[0_0_50px_rgba(79,70,229,0.2)] bg-slate-900" />
         
-        <!-- Vitória -->
-        <div id="win-screen" class="absolute inset-0 hidden flex-col items-center justify-center rounded-2xl border-2 border-indigo-400 backdrop-blur-md z-50 bg-slate-900/80">
-            <h3 class="text-5xl font-black text-white mb-2 neon-text italic">VITÓRIA!</h3>
-            <p class="text-indigo-200 mb-8 font-medium">Conseguiste o peixe!</p>
-            <button id="btn-next" class="bg-indigo-500 text-white font-black py-4 px-10 rounded-2xl shadow-2xl hover:bg-indigo-400 active:scale-90 transition-all text-xl uppercase italic border-b-4 border-indigo-700">
-                Próximo Nível
+        {showWin && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/90 rounded-3xl backdrop-blur-md z-20 animate-in fade-in zoom-in duration-300">
+            <h2 className="text-5xl font-black italic text-white mb-2 drop-shadow-lg">BOA!</h2>
+            <p className="text-indigo-300 mb-8 font-bold uppercase tracking-widest text-sm">O peixinho é teu!</p>
+            <button 
+              onClick={() => {
+                const nextLvl = level + 1;
+                setLevel(nextLvl);
+                setShowWin(false);
+                saveProgress(nextLvl, score);
+              }}
+              className="bg-yellow-400 text-slate-950 font-black px-12 py-5 rounded-2xl text-xl shadow-[0_6px_0_rgb(161,98,7)] active:translate-y-1 active:shadow-none transition-all uppercase italic"
+            >
+              Próximo
             </button>
-        </div>
-    </div>
+          </div>
+        )}
+      </div>
 
-    <!-- Controlos -->
-    <div class="mt-8 grid grid-cols-3 gap-4">
-        <div></div>
-        <button class="btn-control" id="btn-up">⬆️</button>
-        <div></div>
-        <button class="btn-control" id="btn-left">⬅️</button>
-        <button class="btn-control" id="btn-down">⬇️</button>
-        <button class="btn-control" id="btn-right">➡️</button>
-    </div>
+      {/* Controlos Touch */}
+      <div className="mt-8 grid grid-cols-3 gap-4">
+        <div />
+        <button 
+          onPointerDown={() => startMoving(0, -1)} onPointerUp={stopMoving} onPointerLeave={stopMoving}
+          className="w-16 h-16 bg-slate-800/50 backdrop-blur rounded-2xl flex items-center justify-center text-3xl shadow-lg border-2 border-slate-700 active:bg-indigo-500 active:border-indigo-400 touch-none"
+        >⬆️</button>
+        <div />
+        <button 
+          onPointerDown={() => startMoving(-1, 0)} onPointerUp={stopMoving} onPointerLeave={stopMoving}
+          className="w-16 h-16 bg-slate-800/50 backdrop-blur rounded-2xl flex items-center justify-center text-3xl shadow-lg border-2 border-slate-700 active:bg-indigo-500 active:border-indigo-400 touch-none"
+        >⬅️</button>
+        <button 
+          onPointerDown={() => startMoving(0, 1)} onPointerUp={stopMoving} onPointerLeave={stopMoving}
+          className="w-16 h-16 bg-slate-800/50 backdrop-blur rounded-2xl flex items-center justify-center text-3xl shadow-lg border-2 border-slate-700 active:bg-indigo-500 active:border-indigo-400 touch-none"
+        >⬇️</button>
+        <button 
+          onPointerDown={() => startMoving(1, 0)} onPointerUp={stopMoving} onPointerLeave={stopMoving}
+          className="w-16 h-16 bg-slate-800/50 backdrop-blur rounded-2xl flex items-center justify-center text-3xl shadow-lg border-2 border-slate-700 active:bg-indigo-500 active:border-indigo-400 touch-none"
+        >➡️</button>
+      </div>
 
-    <!-- Miau Shop -->
-    <div id="shop-modal" class="fixed inset-0 bg-black/95 hidden z-[500] items-center justify-center p-6 backdrop-blur-xl">
-        <div class="bg-slate-900 border-2 border-indigo-500 rounded-3xl w-full max-w-sm p-6 flex flex-col max-h-[85vh] shadow-2xl">
-            <div class="flex justify-between items-center mb-6">
-                <div>
-                    <h3 class="text-3xl font-black text-white italic tracking-tighter neon-text">Miau Shop</h3>
-                    <p class="text-yellow-400 text-sm font-bold">Saldo: 🐁 <span id="shop-coins">0</span></p>
-                </div>
-                <button id="close-shop" class="text-4xl text-slate-500 hover:text-white">&times;</button>
+      {/* Shop */}
+      {showShop && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-950/95 backdrop-blur-xl animate-in fade-in duration-200">
+          <div className="bg-slate-900 border-2 border-indigo-500 rounded-[2rem] w-full max-w-sm p-6 max-h-[85vh] flex flex-col shadow-2xl">
+            <div className="flex justify-between items-center mb-6">
+              <div>
+                <h3 className="text-3xl font-black italic tracking-tighter text-white">Miau Shop</h3>
+                <p className="text-yellow-400 text-xs font-black">SALDO: 🐁 {score}</p>
+              </div>
+              <button onClick={() => setShowShop(false)} className="text-4xl text-slate-500 hover:text-white">&times;</button>
             </div>
-            <div id="skins-container" class="grid grid-cols-3 gap-4 overflow-y-auto pr-2 pb-4 scrollbar-hide"></div>
+            <div className="grid grid-cols-3 gap-3 overflow-y-auto pb-6 px-1">
+              {skins.map((s, idx) => (
+                <div 
+                  key={s.id} 
+                  onClick={() => buySkin(idx)}
+                  className={`p-4 rounded-2xl border-2 text-center cursor-pointer transition-all ${currentSkin === idx ? 'border-yellow-400 bg-yellow-400/10' : 'border-slate-800 bg-slate-800/50'}`}
+                >
+                  <div className="text-4xl mb-2 drop-shadow-md">{s.emoji}</div>
+                  <div className="text-[9px] font-black uppercase text-slate-400 leading-tight mb-1">{s.name}</div>
+                  <div className="text-[10px] text-yellow-500 font-black">
+                    {unlockedSkins.includes(idx) ? 'USAR' : `🐁 ${s.price}`}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
+      )}
+
+      <div className="mt-8 flex flex-col items-center gap-2">
+        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-900">Helena Games DX • Auto-Save</p>
+        <div className="flex gap-4 opacity-30 text-[10px] font-bold">
+            <span>🛡️ ESCUDO</span>
+            <span>👊 QUEBRAR</span>
+            <span>⚡ VELOZ</span>
+        </div>
+      </div>
     </div>
+  );
+};
 
-    <script>
-        const canvas = document.getElementById('game-canvas');
-        const ctx = canvas.getContext('2d');
-        let level = 1, score = 0, gridSize = 13, cellSize = 0;
-        let maze = [], ghosts = [], items = [], fish = { x: 0, y: 0 };
-        let isGameReady = false;
-
-        // Audio System
-        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        function sfx(f, t, d, v, s = 0) {
-            if (audioCtx.state === 'suspended') audioCtx.resume();
-            const o = audioCtx.createOscillator();
-            const g = audioCtx.createGain();
-            o.type = t; o.frequency.setValueAtTime(f, audioCtx.currentTime);
-            if (s) o.frequency.exponentialRampToValueAtTime(s, audioCtx.currentTime + d);
-            g.gain.setValueAtTime(v, audioCtx.currentTime);
-            g.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + d);
-            o.connect(g); g.connect(audioCtx.destination);
-            o.start(); o.stop(audioCtx.currentTime + d);
-        }
-
-        const play = {
-            move: () => sfx(150, 'sine', 0.1, 0.05),
-            wall: () => sfx(60, 'square', 0.1, 0.03),
-            coin: () => { sfx(800, 'triangle', 0.15, 0.1, 1200); },
-            power: () => { [440, 554, 659, 880].forEach((n, i) => setTimeout(() => sfx(n, 'sine', 0.3, 0.1), i*80)); },
-            hit: () => sfx(150, 'sawtooth', 0.4, 0.1, 40),
-            win: () => { [523, 659, 783, 1046].forEach((n, i) => setTimeout(() => sfx(n, 'square', 0.4, 0.1), i*120)); }
-        };
-
-        const skins = [
-            { id: 0, emoji: '🐱', name: 'Gato', price: 0, unlocked: true },
-            { id: 1, emoji: '🐶', name: 'Cão', price: 20, unlocked: false },
-            { id: 2, emoji: '🐰', name: 'Coelho', price: 50, unlocked: false },
-            { id: 3, emoji: '🦊', name: 'Raposa', price: 100, unlocked: false },
-            { id: 4, emoji: '🐯', name: 'Tigre', price: 200, unlocked: false },
-            { id: 5, emoji: '🦁', name: 'Leão', price: 400, unlocked: false },
-            { id: 6, emoji: '🐲', name: 'Dragão', price: 800, unlocked: false },
-            { id: 7, emoji: '🦄', name: 'Unicórnio', price: 1500, unlocked: false }
-        ];
-        let currentSkinIndex = 0;
-        let player = { x: 1, y: 1, shield: false, strength: false };
-
-        window.onload = () => {
-            document.getElementById('progress-bar').style.width = '100%';
-            setTimeout(() => {
-                document.getElementById('splash-screen').style.opacity = '0';
-                setTimeout(() => {
-                    document.getElementById('splash-screen').style.display = 'none';
-                    initGame();
-                }, 600);
-            }, 1500);
-        };
-
-        function initGame() {
-            isGameReady = false;
-            // Labirinto cresce mais devagar para facilitar
-            gridSize = 11 + (Math.floor((level - 1) / 3) * 2);
-            if (gridSize > 23) gridSize = 23;
-            
-            generateMaze(gridSize);
-            resize();
-            
-            document.getElementById('level-ui').innerText = `Nível ${level}`;
-            document.getElementById('win-screen').classList.add('hidden');
-            updateUI();
-            isGameReady = true;
-        }
-
-        function generateMaze(size) {
-            maze = Array(size).fill().map(() => Array(size).fill(1));
-            const stack = [{x: 1, y: 1}];
-            maze[1][1] = 0;
-
-            while (stack.length > 0) {
-                const curr = stack[stack.length - 1];
-                const neighbors = [];
-                [[0,-2],[0,2],[-2,0],[2,0]].forEach(([dx,dy]) => {
-                    const nx = curr.x+dx, ny = curr.y+dy;
-                    if (nx>0 && nx<size-1 && ny>0 && ny<size-1 && maze[ny][nx]===1) 
-                        neighbors.push({x:nx, y:ny, dx, dy});
-                });
-                if (neighbors.length > 0) {
-                    const next = neighbors[Math.floor(Math.random()*neighbors.length)];
-                    maze[next.y][next.x] = 0;
-                    maze[curr.y+next.dy/2][curr.x+next.dx/2] = 0;
-                    stack.push(next);
-                } else stack.pop();
-            }
-
-            items = []; ghosts = [];
-            // Limitar fantasmas para facilitar
-            const maxGhosts = Math.min(1 + Math.floor(level/4), 3); 
-
-            for (let y = 1; y < size-1; y++) {
-                for (let x = 1; x < size-1; x++) {
-                    if (maze[y][x] === 0 && !(x===1 && y===1)) {
-                        const r = Math.random();
-                        
-                        // Muitos ratinhos
-                        if (r < 0.35) items.push({x, y, type: 'rat'});
-                        else if (r < 0.38) items.push({x, y, type: Math.random() > 0.5 ? 'shield' : 'fist'});
-                        
-                        // Fantasmas com condições restritas (Dificuldade equilibrada)
-                        const distToPlayer = Math.abs(x - 1) + Math.abs(y - 1);
-                        if (r > 0.985 && distToPlayer > 8 && ghosts.length < maxGhosts) {
-                            ghosts.push({ x, y, startX: x, startY: y });
-                        }
-                    }
-                }
-            }
-
-            fish = { x: size-2, y: size-2 };
-            maze[fish.y][fish.x] = 0;
-            player.x = 1; player.y = 1;
-            player.shield = false; player.strength = false;
-        }
-
-        function resize() {
-            const dim = Math.min(window.innerWidth - 40, 420);
-            canvas.width = dim; canvas.height = dim;
-            cellSize = dim / gridSize;
-            render();
-        }
-
-        function render() {
-            if (!isGameReady || !maze.length) return;
-            ctx.clearRect(0,0, canvas.width, canvas.height);
-            
-            for (let y=0; y<gridSize; y++) {
-                for (let x=0; x<gridSize; x++) {
-                    if (maze[y][x] === 1) {
-                        ctx.fillStyle = '#1e1b4b';
-                        ctx.beginPath();
-                        ctx.roundRect(x*cellSize+2, y*cellSize+2, cellSize-4, cellSize-4, 5);
-                        ctx.fill();
-                    }
-                }
-            }
-
-            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-            items.forEach(it => {
-                ctx.font = `${cellSize*(it.type === 'rat' ? 0.7 : 0.6)}px Arial`;
-                ctx.fillText(it.type === 'rat' ? '🐁' : (it.type === 'shield' ? '🛡️' : '👊'), it.x*cellSize+cellSize/2, it.y*cellSize+cellSize/2);
-            });
-
-            ctx.font = `${cellSize*0.9}px Arial`;
-            ctx.fillText('🐟', fish.x*cellSize+cellSize/2, fish.y*cellSize+cellSize/2);
-
-            ghosts.forEach(g => {
-                ctx.font = `${cellSize*0.8}px Arial`;
-                ctx.shadowColor = 'white'; ctx.shadowBlur = 4;
-                ctx.fillText('👻', g.x*cellSize+cellSize/2, g.y*cellSize+cellSize/2);
-                ctx.shadowBlur = 0;
-            });
-
-            ctx.save();
-            if (player.shield) {
-                ctx.beginPath();
-                ctx.arc(player.x*cellSize+cellSize/2, player.y*cellSize+cellSize/2, cellSize/1.4, 0, Math.PI*2);
-                ctx.strokeStyle = '#00f2ff'; ctx.lineWidth = 3; ctx.stroke();
-            }
-            ctx.font = `${cellSize*0.8}px Arial`;
-            ctx.fillText(skins[currentSkinIndex].emoji, player.x*cellSize+cellSize/2, player.y*cellSize+cellSize/2);
-            ctx.restore();
-        }
-
-        function tryMove(dx, dy) {
-            if (!isGameReady || !document.getElementById('win-screen').classList.contains('hidden')) return;
-            let nx = player.x + dx, ny = player.y + dy;
-            
-            if (nx >= 0 && nx < gridSize && ny >= 0 && ny < gridSize) {
-                if (maze[ny] && maze[ny][nx] === 1) {
-                    if (player.strength) { maze[ny][nx] = 0; play.wall(); }
-                    else { play.wall(); return; }
-                }
-                player.x = nx; player.y = ny;
-                play.move();
-                checkCollisions();
-                render();
-            }
-        }
-
-        function checkCollisions() {
-            items = items.filter(it => {
-                if (it.x === player.x && it.y === player.y) {
-                    if (it.type === 'rat') { score++; play.coin(); updateUI(); }
-                    else { activatePower(it.type); play.power(); }
-                    return false;
-                }
-                return true;
-            });
-
-            ghosts.forEach(g => {
-                const dist = Math.sqrt(Math.pow(g.x - player.x, 2) + Math.pow(g.y - player.y, 2));
-                if (dist < 0.6) {
-                    if (player.shield) {
-                        player.shield = false;
-                        g.x = g.startX; g.y = g.startY;
-                        play.hit();
-                    } else {
-                        player.x = 1; player.y = 1;
-                        play.hit();
-                    }
-                }
-            });
-
-            if (player.x === fish.x && player.y === fish.y) {
-                play.win();
-                document.getElementById('win-screen').classList.remove('hidden');
-            }
-        }
-
-        function activatePower(type) {
-            if (type==='shield') player.shield = true;
-            if (type==='fist') player.strength = true;
-            setTimeout(() => { if(type==='fist') player.strength = false; render(); }, 8000);
-        }
-
-        function updateUI() {
-            document.getElementById('coin-ui').innerText = `🐁 ${score}`;
-            document.getElementById('shop-coins').innerText = score;
-        }
-
-        function openShop() {
-            const container = document.getElementById('skins-container');
-            container.innerHTML = '';
-            skins.forEach((skin, idx) => {
-                const card = document.createElement('div');
-                card.className = `skin-card p-3 text-center cursor-pointer ${currentSkinIndex === idx ? 'selected' : ''} ${!skin.unlocked ? 'locked' : ''}`;
-                card.innerHTML = `
-                    <div class="text-3xl mb-1">${skin.emoji}</div>
-                    <div class="text-[10px] font-bold text-white">${skin.name}</div>
-                    ${!skin.unlocked ? `<div class="text-[10px] text-yellow-400 mt-1">🐁 ${skin.price}</div>` : `<div class="text-[9px] text-indigo-400 mt-1 uppercase">Usar</div>`}
-                `;
-                card.onclick = () => {
-                    if (skin.unlocked) { currentSkinIndex = idx; openShop(); render(); }
-                    else if (score >= skin.price) {
-                        score -= skin.price; skin.unlocked = true; currentSkinIndex = idx;
-                        updateUI(); openShop(); render();
-                    }
-                };
-                container.appendChild(card);
-            });
-            document.getElementById('shop-modal').classList.replace('hidden', 'flex');
-        }
-
-        setInterval(() => {
-            if (!isGameReady || !document.getElementById('win-screen').classList.contains('hidden')) return;
-            ghosts.forEach(g => {
-                const dx = player.x - g.x, dy = player.y - g.y;
-                // Fantasmas um pouco mais lentos (0.015 base)
-                const speed = Math.min(0.015 + (level * 0.003), 0.05);
-                g.x += Math.sign(dx) * speed;
-                g.y += Math.sign(dy) * speed;
-            });
-            checkCollisions();
-            render();
-        }, 100);
-
-        const bind = (id, dx, dy) => {
-            document.getElementById(id).addEventListener('pointerdown', (e) => { e.preventDefault(); tryMove(dx, dy); });
-        };
-        bind('btn-up', 0, -1); bind('btn-down', 0, 1);
-        bind('btn-left', -1, 0); bind('btn-right', 1, 0);
-
-        window.onkeydown = (e) => {
-            if(e.key === 'ArrowUp') tryMove(0, -1);
-            if(e.key === 'ArrowDown') tryMove(0, 1);
-            if(e.key === 'ArrowLeft') tryMove(-1, 0);
-            if(e.key === 'ArrowRight') tryMove(1, 0);
-        };
-
-        document.getElementById('btn-skins').onclick = openShop;
-        document.getElementById('close-shop').onclick = () => document.getElementById('shop-modal').classList.replace('flex', 'hidden');
-        document.getElementById('btn-next').onclick = () => { level++; initGame(); };
-        window.onresize = resize;
-    </script>
-</body>
-    </html>
+export default App;
