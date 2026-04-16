@@ -3,6 +3,7 @@ import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, doc, setDoc, getDoc, onSnapshot } from 'firebase/firestore';
 
+// Inicialização do Firebase
 const firebaseConfig = JSON.parse(__firebase_config);
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -19,7 +20,6 @@ const App = () => {
   const [showShop, setShowShop] = useState(false);
   const [showWin, setShowWin] = useState(false);
   
-  // Refs para lógica de jogo e movimento
   const gameState = useRef({
     gridSize: 11,
     cellSize: 0,
@@ -29,8 +29,7 @@ const App = () => {
     items: [],
     fish: { x: 0, y: 0 },
     isReady: false,
-    moveInterval: null,
-    activeDir: { dx: 0, dy: 0 }
+    moveInterval: null
   });
 
   const skins = [
@@ -44,28 +43,23 @@ const App = () => {
     { id: 7, emoji: '🦄', name: 'Unicórnio', price: 1500 }
   ];
 
-  const playSound = (f, t, d, v) => {
-    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    if (audioCtx.state === 'suspended') audioCtx.resume();
-    const o = audioCtx.createOscillator();
-    const g = audioCtx.createGain();
-    o.type = t;
-    o.frequency.setValueAtTime(f, audioCtx.currentTime);
-    g.gain.setValueAtTime(v, audioCtx.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + d);
-    o.connect(g); g.connect(audioCtx.destination);
-    o.start(); o.stop(audioCtx.currentTime + d);
+  // Sons
+  const sfx = (f, t, d, v) => {
+    try {
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      const o = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      o.type = t;
+      o.frequency.setValueAtTime(f, audioCtx.currentTime);
+      g.gain.setValueAtTime(v, audioCtx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + d);
+      o.connect(g); g.connect(audioCtx.destination);
+      o.start(); o.stop(audioCtx.currentTime + d);
+    } catch (e) {}
   };
 
-  const sfx = {
-    move: () => playSound(150, 'sine', 0.1, 0.05),
-    coin: () => playSound(900, 'triangle', 0.15, 0.1),
-    power: () => playSound(600, 'sine', 0.4, 0.1),
-    win: () => playSound(523, 'square', 0.5, 0.1),
-    hit: () => playSound(100, 'sawtooth', 0.3, 0.1)
-  };
-
-  // Auth & Cloud Save
+  // Firebase Auth (Regra 3)
   useEffect(() => {
     const initAuth = async () => {
       if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
@@ -79,29 +73,31 @@ const App = () => {
     return () => unsubscribe();
   }, []);
 
+  // Carregar/Salvar Dados (Regra 1 e 2)
   useEffect(() => {
     if (!user) return;
     const userDocRef = doc(db, 'artifacts', appId, 'users', user.uid, 'saveData', 'progress');
+    
     getDoc(userDocRef).then((snap) => {
       if (snap.exists()) {
         const data = snap.data();
-        setLevel(data.level || 1);
-        setScore(data.score || 0);
-        setUnlockedSkins(data.unlockedSkins || [0]);
-        setCurrentSkin(data.currentSkin || 0);
+        if (data.level) setLevel(data.level);
+        if (data.score !== undefined) setScore(data.score);
+        if (data.unlockedSkins) setUnlockedSkins(data.unlockedSkins);
+        if (data.currentSkin !== undefined) setCurrentSkin(data.currentSkin);
       }
     });
   }, [user]);
 
-  const saveProgress = async (newLevel, newScore, newSkins, newCurrentSkin) => {
+  const saveToCloud = async (l, s, skinsArr, current) => {
     if (!user) return;
     const userDocRef = doc(db, 'artifacts', appId, 'users', user.uid, 'saveData', 'progress');
     await setDoc(userDocRef, {
-      level: newLevel ?? level,
-      score: newScore ?? score,
-      unlockedSkins: newSkins ?? unlockedSkins,
-      currentSkin: newCurrentSkin ?? currentSkin,
-      updatedAt: Date.now()
+      level: l ?? level,
+      score: s ?? score,
+      unlockedSkins: skinsArr ?? unlockedSkins,
+      currentSkin: current ?? currentSkin,
+      lastSeen: Date.now()
     }, { merge: true });
   };
 
@@ -140,8 +136,7 @@ const App = () => {
           else if (r < 0.29) items.push({ x, y, type: 'fist' });
           else if (r < 0.32) items.push({ x, y, type: 'speed' });
 
-          const dist = Math.abs(x - 1) + Math.abs(y - 1);
-          if (r > 0.99 && dist > 8 && ghosts.length < maxGhosts) {
+          if (r > 0.99 && (Math.abs(x-1)+Math.abs(y-1)) > 8 && ghosts.length < maxGhosts) {
             ghosts.push({ x, y, startX: x, startY: y });
           }
         }
@@ -158,6 +153,16 @@ const App = () => {
       player: { x: 1, y: 1, shield: false, strength: false, speed: false },
       isReady: true
     };
+    handleResize();
+  };
+
+  const handleResize = () => {
+    const cvs = canvasRef.current;
+    if (!cvs) return;
+    const dim = Math.min(window.innerWidth - 40, 400);
+    cvs.width = dim;
+    cvs.height = dim;
+    gameState.current.cellSize = dim / gameState.current.gridSize;
     render();
   };
 
@@ -165,22 +170,24 @@ const App = () => {
     const cvs = canvasRef.current;
     if (!cvs || !gameState.current.isReady) return;
     const ctx = cvs.getContext('2d');
-    const { maze, gridSize, cellSize, items, ghosts, fish, player } = gameState.current;
+    const { maze, cellSize, items, ghosts, fish, player } = gameState.current;
 
     ctx.clearRect(0, 0, cvs.width, cvs.height);
+    
+    // Labirinto
     maze.forEach((row, y) => {
       row.forEach((cell, x) => {
         if (cell === 1) {
           ctx.fillStyle = '#1e1b4b';
-          ctx.beginPath();
-          ctx.roundRect(x * cellSize + 1, y * cellSize + 1, cellSize - 2, cellSize - 2, 4);
-          ctx.fill();
+          ctx.fillRect(x * cellSize + 1, y * cellSize + 1, cellSize - 2, cellSize - 2);
         }
       });
     });
 
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
+
+    // Itens e Entidades
     items.forEach(it => {
       ctx.font = `${cellSize * 0.7}px Arial`;
       const icons = { rat: '🐁', shield: '🛡️', fist: '👊', speed: '⚡' };
@@ -195,11 +202,12 @@ const App = () => {
       ctx.fillText('👻', g.x * cellSize + cellSize / 2, g.y * cellSize + cellSize / 2);
     });
 
+    // Player
     ctx.save();
     if (player.shield) {
       ctx.beginPath();
-      ctx.arc(player.x * cellSize + cellSize / 2, player.y * cellSize + cellSize / 2, cellSize / 1.4, 0, Math.PI * 2);
-      ctx.strokeStyle = '#00f2ff'; ctx.lineWidth = 3; ctx.stroke();
+      ctx.arc(player.x * cellSize + cellSize / 2, player.y * cellSize + cellSize / 2, cellSize / 1.5, 0, Math.PI * 2);
+      ctx.strokeStyle = '#00f2ff'; ctx.lineWidth = 2; ctx.stroke();
     }
     if (player.speed) {
       ctx.shadowColor = '#fbbf24'; ctx.shadowBlur = 15;
@@ -209,44 +217,56 @@ const App = () => {
     ctx.restore();
   };
 
-  // Função principal de movimento
-  const executeMove = (dx, dy) => {
+  const move = (dx, dy) => {
     const gs = gameState.current;
     if (!gs.isReady || showWin) return;
-
     let nx = gs.player.x + dx;
     let ny = gs.player.y + dy;
-
     if (nx >= 0 && nx < gs.gridSize && ny >= 0 && ny < gs.gridSize) {
       if (gs.maze[ny][nx] === 1) {
         if (gs.player.strength) gs.maze[ny][nx] = 0;
         else return;
       }
-      gs.player.x = nx;
-      gs.player.y = ny;
-      sfx.move();
-      checkCollisions();
+      gs.player.x = nx; gs.player.y = ny;
+      sfx(200, 'sine', 0.1, 0.05);
+      
+      // Colisões Itens
+      gs.items = gs.items.filter(it => {
+        if (it.x === gs.player.x && it.y === gs.player.y) {
+          if (it.type === 'rat') {
+            const newScore = score + 1;
+            setScore(newScore);
+            saveToCloud(level, newScore);
+            sfx(800, 'triangle', 0.1, 0.1);
+          } else {
+            gs.player[it.type] = true;
+            sfx(600, 'sine', 0.3, 0.1);
+            setTimeout(() => { gs.player[it.type] = false; render(); }, 8000);
+          }
+          return false;
+        }
+        return true;
+      });
+
+      if (gs.player.x === gs.fish.x && gs.player.y === gs.fish.y) {
+        sfx(523, 'square', 0.5, 0.1);
+        setShowWin(true);
+        stopMoving();
+      }
       render();
     }
   };
 
-  // Sistema de pressionar e segurar
   const startMoving = (dx, dy) => {
     if (gameState.current.moveInterval) return;
-    
-    // Executa o primeiro movimento imediatamente
-    executeMove(dx, dy);
-    
-    // Define o tempo entre passos (mais rápido com power-up de velocidade)
+    move(dx, dy);
     const getDelay = () => gameState.current.player.speed ? 80 : 200;
-
-    const intervalFunc = () => {
-      executeMove(dx, dy);
+    const loop = () => {
+      move(dx, dy);
       clearInterval(gameState.current.moveInterval);
-      gameState.current.moveInterval = setInterval(intervalFunc, getDelay());
+      gameState.current.moveInterval = setInterval(loop, getDelay());
     };
-
-    gameState.current.moveInterval = setInterval(intervalFunc, getDelay());
+    gameState.current.moveInterval = setInterval(loop, getDelay());
   };
 
   const stopMoving = () => {
@@ -254,214 +274,101 @@ const App = () => {
     gameState.current.moveInterval = null;
   };
 
-  const checkCollisions = () => {
-    const gs = gameState.current;
-    gs.items = gs.items.filter(it => {
-      if (it.x === gs.player.x && it.y === gs.player.y) {
-        if (it.type === 'rat') {
-          setScore(s => {
-            const newS = s + 1;
-            saveProgress(level, newS);
-            return newS;
-          });
-          sfx.coin();
-        } else {
-          gs.player[it.type] = true;
-          sfx.power();
-          setTimeout(() => {
-            gs.player[it.type] = false;
-            render();
-          }, 8000);
-        }
-        return false;
-      }
-      return true;
-    });
-
-    if (gs.player.x === gs.fish.x && gs.player.y === gs.fish.y) {
-      sfx.win();
-      setShowWin(true);
-      stopMoving();
-    }
-  };
-
-  // Loop dos Fantasmas
   useEffect(() => {
-    if (gameState.current.isReady) {
-      const interval = setInterval(() => {
-        if (showWin) return;
-        const gs = gameState.current;
-        gs.ghosts.forEach(g => {
-          const dx = gs.player.x - g.x;
-          const dy = gs.player.y - g.y;
-          const speed = 0.015 + (level * 0.002);
-          g.x += Math.sign(dx) * speed;
-          g.y += Math.sign(dy) * speed;
-
-          if (Math.abs(g.x - gs.player.x) < 0.5 && Math.abs(g.y - gs.player.y) < 0.5) {
-            if (gs.player.shield) {
-              gs.player.shield = false;
-              g.x = g.startX; g.y = g.startY;
-            } else {
-              gs.player.x = 1; gs.player.y = 1;
-            }
-            sfx.hit();
-          }
-        });
-        render();
-      }, 50);
-      return () => clearInterval(interval);
-    }
-  }, [level, showWin]);
-
-  useEffect(() => {
-    const handleResize = () => {
-      const dim = Math.min(window.innerWidth - 40, 400);
-      canvasRef.current.width = dim;
-      canvasRef.current.height = dim;
-      gameState.current.cellSize = dim / gameState.current.gridSize;
-      render();
-    };
-    handleResize();
-    window.addEventListener('resize', handleResize);
     generateMaze(level);
+    window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, [level, currentSkin]);
 
-  // Teclado
+  // Loop Fantasmas
   useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (e.repeat) return;
-      if (e.key === 'ArrowUp') startMoving(0, -1);
-      if (e.key === 'ArrowDown') startMoving(0, 1);
-      if (e.key === 'ArrowLeft') startMoving(-1, 0);
-      if (e.key === 'ArrowRight') startMoving(1, 0);
-    };
-    const handleKeyUp = () => stopMoving();
-    
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp);
-    };
-  }, []);
+    const timer = setInterval(() => {
+      if (showWin || !gameState.current.isReady) return;
+      const gs = gameState.current;
+      gs.ghosts.forEach(g => {
+        const spd = 0.015 + (level * 0.002);
+        g.x += Math.sign(gs.player.x - g.x) * spd;
+        g.y += Math.sign(gs.player.y - g.y) * spd;
+        if (Math.abs(g.x - gs.player.x) < 0.5 && Math.abs(g.y - gs.player.y) < 0.5) {
+          if (gs.player.shield) { gs.player.shield = false; g.x = g.startX; g.y = g.startY; }
+          else { gs.player.x = 1; gs.player.y = 1; }
+          sfx(100, 'sawtooth', 0.2, 0.1);
+        }
+      });
+      render();
+    }, 50);
+    return () => clearInterval(timer);
+  }, [level, showWin]);
 
-  const buySkin = (index) => {
-    const skin = skins[index];
-    if (unlockedSkins.includes(index)) {
-      setCurrentSkin(index);
-      saveProgress(level, score, unlockedSkins, index);
-    } else if (score >= skin.price) {
-      const newScore = score - skin.price;
-      const newSkins = [...unlockedSkins, index];
-      setScore(newScore);
-      setUnlockedSkins(newSkins);
-      setCurrentSkin(index);
-      saveProgress(level, newScore, newSkins, index);
+  const buySkin = (idx) => {
+    const s = skins[idx];
+    if (unlockedSkins.includes(idx)) {
+      setCurrentSkin(idx);
+      saveToCloud(level, score, unlockedSkins, idx);
+    } else if (score >= s.price) {
+      const ns = score - s.price;
+      const nSkins = [...unlockedSkins, idx];
+      setScore(ns); setUnlockedSkins(nSkins); setCurrentSkin(idx);
+      saveToCloud(level, ns, nSkins, idx);
     }
   };
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-slate-950 p-4 text-white font-sans">
-      {/* HUD */}
+    <div className="flex flex-col items-center justify-center min-h-screen bg-slate-950 p-4 text-white select-none touch-none">
       <div className="w-full max-w-[400px] flex justify-between items-end mb-4 px-2">
         <div className="flex flex-col">
-          <span className="text-[9px] text-indigo-500 font-mono tracking-tighter">CLOUD SAVE: {user?.uid.slice(0,6)}</span>
-          <span className="text-xs font-black text-indigo-400 italic">NÍVEL {level}</span>
+          <span className="text-[10px] text-indigo-500 font-mono tracking-widest uppercase">ID: {user?.uid.slice(0,6)}</span>
+          <span className="text-sm font-black text-indigo-400">NÍVEL {level}</span>
           <span className="text-3xl font-black text-yellow-400 drop-shadow-lg">🐁 {score}</span>
         </div>
-        <button 
-          onClick={() => setShowShop(true)}
-          className="bg-indigo-600 px-4 py-2 rounded-xl font-bold shadow-[0_4px_0_rgb(30,27,75)] active:translate-y-1 active:shadow-none transition-all text-sm uppercase tracking-wider"
-        >
-          Miau Shop 🐾
-        </button>
+        <button onClick={() => setShowShop(true)} className="bg-indigo-600 px-5 py-2 rounded-xl font-bold shadow-[0_4px_0_rgb(30,27,75)] active:translate-y-1 active:shadow-none transition-all text-xs uppercase">LOJA 🐾</button>
       </div>
 
-      {/* Arena */}
-      <div className="relative group">
-        <canvas ref={canvasRef} className="rounded-3xl border-4 border-indigo-900 shadow-[0_0_50px_rgba(79,70,229,0.2)] bg-slate-900" />
+      <div className="relative">
+        <canvas ref={canvasRef} className="rounded-3xl border-4 border-indigo-900 bg-slate-900 shadow-2xl" />
         
         {showWin && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/90 rounded-3xl backdrop-blur-md z-20 animate-in fade-in zoom-in duration-300">
-            <h2 className="text-5xl font-black italic text-white mb-2 drop-shadow-lg">BOA!</h2>
-            <p className="text-indigo-300 mb-8 font-bold uppercase tracking-widest text-sm">O peixinho é teu!</p>
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/80 rounded-3xl backdrop-blur-md z-20">
+            <h2 className="text-5xl font-black italic mb-2 animate-bounce">VITÓRIA!</h2>
+            <p className="text-indigo-300 mb-8 font-bold uppercase tracking-widest">Peixinho capturado!</p>
             <button 
-              onClick={() => {
-                const nextLvl = level + 1;
-                setLevel(nextLvl);
-                setShowWin(false);
-                saveProgress(nextLvl, score);
-              }}
-              className="bg-yellow-400 text-slate-950 font-black px-12 py-5 rounded-2xl text-xl shadow-[0_6px_0_rgb(161,98,7)] active:translate-y-1 active:shadow-none transition-all uppercase italic"
+              onClick={() => { setLevel(l => l + 1); setShowWin(false); saveToCloud(level + 1, score); }}
+              className="bg-indigo-500 text-white font-black px-12 py-5 rounded-2xl text-xl shadow-[0_6px_0_rgb(30,27,75)] active:translate-y-1 active:shadow-none transition-all uppercase italic"
             >
-              Próximo
+              PRÓXIMO NÍVEL
             </button>
           </div>
         )}
       </div>
 
-      {/* Controlos Touch */}
       <div className="mt-8 grid grid-cols-3 gap-4">
         <div />
-        <button 
-          onPointerDown={() => startMoving(0, -1)} onPointerUp={stopMoving} onPointerLeave={stopMoving}
-          className="w-16 h-16 bg-slate-800/50 backdrop-blur rounded-2xl flex items-center justify-center text-3xl shadow-lg border-2 border-slate-700 active:bg-indigo-500 active:border-indigo-400 touch-none"
-        >⬆️</button>
+        <button onPointerDown={() => startMoving(0, -1)} onPointerUp={stopMoving} onPointerLeave={stopMoving} className="w-16 h-16 bg-slate-800 rounded-2xl flex items-center justify-center text-3xl shadow-lg border-2 border-slate-700 active:bg-indigo-600">⬆️</button>
         <div />
-        <button 
-          onPointerDown={() => startMoving(-1, 0)} onPointerUp={stopMoving} onPointerLeave={stopMoving}
-          className="w-16 h-16 bg-slate-800/50 backdrop-blur rounded-2xl flex items-center justify-center text-3xl shadow-lg border-2 border-slate-700 active:bg-indigo-500 active:border-indigo-400 touch-none"
-        >⬅️</button>
-        <button 
-          onPointerDown={() => startMoving(0, 1)} onPointerUp={stopMoving} onPointerLeave={stopMoving}
-          className="w-16 h-16 bg-slate-800/50 backdrop-blur rounded-2xl flex items-center justify-center text-3xl shadow-lg border-2 border-slate-700 active:bg-indigo-500 active:border-indigo-400 touch-none"
-        >⬇️</button>
-        <button 
-          onPointerDown={() => startMoving(1, 0)} onPointerUp={stopMoving} onPointerLeave={stopMoving}
-          className="w-16 h-16 bg-slate-800/50 backdrop-blur rounded-2xl flex items-center justify-center text-3xl shadow-lg border-2 border-slate-700 active:bg-indigo-500 active:border-indigo-400 touch-none"
-        >➡️</button>
+        <button onPointerDown={() => startMoving(-1, 0)} onPointerUp={stopMoving} onPointerLeave={stopMoving} className="w-16 h-16 bg-slate-800 rounded-2xl flex items-center justify-center text-3xl shadow-lg border-2 border-slate-700 active:bg-indigo-600">⬅️</button>
+        <button onPointerDown={() => startMoving(0, 1)} onPointerUp={stopMoving} onPointerLeave={stopMoving} className="w-16 h-16 bg-slate-800 rounded-2xl flex items-center justify-center text-3xl shadow-lg border-2 border-slate-700 active:bg-indigo-600">⬇️</button>
+        <button onPointerDown={() => startMoving(1, 0)} onPointerUp={stopMoving} onPointerLeave={stopMoving} className="w-16 h-16 bg-slate-800 rounded-2xl flex items-center justify-center text-3xl shadow-lg border-2 border-slate-700 active:bg-indigo-600">➡️</button>
       </div>
 
-      {/* Shop */}
       {showShop && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-950/95 backdrop-blur-xl animate-in fade-in duration-200">
-          <div className="bg-slate-900 border-2 border-indigo-500 rounded-[2rem] w-full max-w-sm p-6 max-h-[85vh] flex flex-col shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-950/95 backdrop-blur-xl">
+          <div className="bg-slate-900 border-2 border-indigo-500 rounded-[2rem] w-full max-w-sm p-6 max-h-[80vh] flex flex-col">
             <div className="flex justify-between items-center mb-6">
-              <div>
-                <h3 className="text-3xl font-black italic tracking-tighter text-white">Miau Shop</h3>
-                <p className="text-yellow-400 text-xs font-black">SALDO: 🐁 {score}</p>
-              </div>
-              <button onClick={() => setShowShop(false)} className="text-4xl text-slate-500 hover:text-white">&times;</button>
+              <h3 className="text-2xl font-black italic">Miau Shop</h3>
+              <button onClick={() => setShowShop(false)} className="text-3xl">&times;</button>
             </div>
-            <div className="grid grid-cols-3 gap-3 overflow-y-auto pb-6 px-1">
+            <div className="grid grid-cols-3 gap-3 overflow-y-auto pb-6">
               {skins.map((s, idx) => (
-                <div 
-                  key={s.id} 
-                  onClick={() => buySkin(idx)}
-                  className={`p-4 rounded-2xl border-2 text-center cursor-pointer transition-all ${currentSkin === idx ? 'border-yellow-400 bg-yellow-400/10' : 'border-slate-800 bg-slate-800/50'}`}
-                >
-                  <div className="text-4xl mb-2 drop-shadow-md">{s.emoji}</div>
-                  <div className="text-[9px] font-black uppercase text-slate-400 leading-tight mb-1">{s.name}</div>
-                  <div className="text-[10px] text-yellow-500 font-black">
-                    {unlockedSkins.includes(idx) ? 'USAR' : `🐁 ${s.price}`}
-                  </div>
+                <div key={s.id} onClick={() => buySkin(idx)} className={`p-4 rounded-2xl border-2 text-center transition-all ${currentSkin === idx ? 'border-yellow-400 bg-yellow-400/10' : 'border-slate-800 bg-slate-800'}`}>
+                  <div className="text-3xl mb-1">{s.emoji}</div>
+                  <div className="text-[10px] font-bold uppercase mb-1">{s.name}</div>
+                  <div className="text-[10px] text-yellow-500 font-black">{unlockedSkins.includes(idx) ? 'USAR' : `🐁 ${s.price}`}</div>
                 </div>
               ))}
             </div>
           </div>
         </div>
       )}
-
-      <div className="mt-8 flex flex-col items-center gap-2">
-        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-900">Helena Games DX • Auto-Save</p>
-        <div className="flex gap-4 opacity-30 text-[10px] font-bold">
-            <span>🛡️ ESCUDO</span>
-            <span>👊 QUEBRAR</span>
-            <span>⚡ VELOZ</span>
-        </div>
-      </div>
     </div>
   );
 };
