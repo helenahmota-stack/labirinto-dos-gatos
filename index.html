@@ -81,42 +81,44 @@
         }
         .skin-card.selected { border-color: #818cf8; background: rgba(79, 70, 229, 0.4); }
         .skin-card.locked { opacity: 0.5; }
+        
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
     </style>
 </head>
 <body class="p-4">
 
-    <!-- Splash Screen de Abertura -->
+    <!-- Splash Screen -->
     <div id="splash-screen">
         <div class="animate-pulse">
             <h1 class="text-6xl font-black italic tracking-tighter neon-text mb-2">HELENA GAMES</h1>
             <div class="w-full max-w-[200px] h-1 bg-indigo-900/50 rounded-full overflow-hidden mx-auto mt-4">
                 <div id="progress-bar" class="w-0 h-full bg-indigo-500 transition-all duration-1000"></div>
             </div>
-            <p class="credit-text">Jogo desenvolvido por Helena Mota Moreira</p>
+            <p class="credit-text">Desenvolvido por Helena Mota Moreira</p>
         </div>
     </div>
 
     <!-- Interface -->
     <div class="w-full max-w-md flex justify-between items-center mb-4">
         <div class="flex flex-col">
-            <span id="level-ui" class="text-xs font-bold text-indigo-400 tracking-wider">NÍVEL 1</span>
+            <span id="level-ui" class="text-xs font-bold text-indigo-400 tracking-wider uppercase italic">Nível 1</span>
             <span id="coin-ui" class="text-2xl font-black text-yellow-400 drop-shadow-md">🐁 0</span>
         </div>
         <button id="btn-skins" class="bg-indigo-600 px-5 py-2 rounded-xl font-bold text-sm shadow-lg hover:bg-indigo-500 active:scale-95 transition-all uppercase tracking-widest border-b-4 border-indigo-800">
-            Loja 🐾
+            Miau Shop 🐾
         </button>
     </div>
 
-    <!-- Canvas -->
+    <!-- Arena -->
     <div class="relative w-full max-w-md">
         <canvas id="game-canvas"></canvas>
         
         <!-- Vitória -->
         <div id="win-screen" class="absolute inset-0 hidden flex-col items-center justify-center rounded-2xl border-2 border-indigo-400 backdrop-blur-md z-50 bg-slate-900/80">
             <h3 class="text-5xl font-black text-white mb-2 neon-text italic">VITÓRIA!</h3>
-            <p class="text-indigo-200 mb-8 font-medium">Peixinho capturado!</p>
+            <p class="text-indigo-200 mb-8 font-medium">Conseguiste o peixe!</p>
             <button id="btn-next" class="bg-indigo-500 text-white font-black py-4 px-10 rounded-2xl shadow-2xl hover:bg-indigo-400 active:scale-90 transition-all text-xl uppercase italic border-b-4 border-indigo-700">
-                PRÓXIMO NÍVEL
+                Próximo Nível
             </button>
         </div>
     </div>
@@ -131,19 +133,17 @@
         <button class="btn-control" id="btn-right">➡️</button>
     </div>
 
-    <!-- Modal Loja -->
+    <!-- Miau Shop -->
     <div id="shop-modal" class="fixed inset-0 bg-black/95 hidden z-[500] items-center justify-center p-6 backdrop-blur-xl">
         <div class="bg-slate-900 border-2 border-indigo-500 rounded-3xl w-full max-w-sm p-6 flex flex-col max-h-[85vh] shadow-2xl">
             <div class="flex justify-between items-center mb-6">
                 <div>
-                    <h3 class="text-2xl font-bold text-white">Loja de Animais</h3>
+                    <h3 class="text-3xl font-black text-white italic tracking-tighter neon-text">Miau Shop</h3>
                     <p class="text-yellow-400 text-sm font-bold">Saldo: 🐁 <span id="shop-coins">0</span></p>
                 </div>
                 <button id="close-shop" class="text-4xl text-slate-500 hover:text-white">&times;</button>
             </div>
-            <div id="skins-container" class="grid grid-cols-3 gap-4 overflow-y-auto pr-2 pb-4">
-                <!-- Skins aqui -->
-            </div>
+            <div id="skins-container" class="grid grid-cols-3 gap-4 overflow-y-auto pr-2 pb-4 scrollbar-hide"></div>
         </div>
     </div>
 
@@ -154,16 +154,40 @@
         let maze = [], ghosts = [], items = [], fish = { x: 0, y: 0 };
         let isGameReady = false;
 
+        // Audio System
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        function sfx(f, t, d, v, s = 0) {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            const o = audioCtx.createOscillator();
+            const g = audioCtx.createGain();
+            o.type = t; o.frequency.setValueAtTime(f, audioCtx.currentTime);
+            if (s) o.frequency.exponentialRampToValueAtTime(s, audioCtx.currentTime + d);
+            g.gain.setValueAtTime(v, audioCtx.currentTime);
+            g.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + d);
+            o.connect(g); g.connect(audioCtx.destination);
+            o.start(); o.stop(audioCtx.currentTime + d);
+        }
+
+        const play = {
+            move: () => sfx(150, 'sine', 0.1, 0.05),
+            wall: () => sfx(60, 'square', 0.1, 0.03),
+            coin: () => { sfx(800, 'triangle', 0.15, 0.1, 1200); },
+            power: () => { [440, 554, 659, 880].forEach((n, i) => setTimeout(() => sfx(n, 'sine', 0.3, 0.1), i*80)); },
+            hit: () => sfx(150, 'sawtooth', 0.4, 0.1, 40),
+            win: () => { [523, 659, 783, 1046].forEach((n, i) => setTimeout(() => sfx(n, 'square', 0.4, 0.1), i*120)); }
+        };
+
         const skins = [
             { id: 0, emoji: '🐱', name: 'Gato', price: 0, unlocked: true },
-            { id: 1, emoji: '🐶', name: 'Cão', price: 15, unlocked: false },
-            { id: 2, emoji: '🐰', name: 'Coelho', price: 30, unlocked: false },
-            { id: 3, emoji: '🦊', name: 'Raposa', price: 60, unlocked: false },
-            { id: 4, emoji: '🐯', name: 'Tigre', price: 150, unlocked: false },
-            { id: 5, emoji: '🦄', name: 'Unicórnio', price: 500, unlocked: false }
+            { id: 1, emoji: '🐶', name: 'Cão', price: 20, unlocked: false },
+            { id: 2, emoji: '🐰', name: 'Coelho', price: 50, unlocked: false },
+            { id: 3, emoji: '🦊', name: 'Raposa', price: 100, unlocked: false },
+            { id: 4, emoji: '🐯', name: 'Tigre', price: 200, unlocked: false },
+            { id: 5, emoji: '🦁', name: 'Leão', price: 400, unlocked: false },
+            { id: 6, emoji: '🐲', name: 'Dragão', price: 800, unlocked: false },
+            { id: 7, emoji: '🦄', name: 'Unicórnio', price: 1500, unlocked: false }
         ];
         let currentSkinIndex = 0;
-
         let player = { x: 1, y: 1, shield: false, strength: false };
 
         window.onload = () => {
@@ -174,22 +198,21 @@
                     document.getElementById('splash-screen').style.display = 'none';
                     initGame();
                 }, 600);
-            }, 1800);
+            }, 1500);
         };
 
         function initGame() {
             isGameReady = false;
-            // Aumenta o tamanho conforme o nível
-            gridSize = 11 + (Math.floor((level - 1) / 2) * 2);
+            // Labirinto cresce mais devagar para facilitar
+            gridSize = 11 + (Math.floor((level - 1) / 3) * 2);
             if (gridSize > 23) gridSize = 23;
             
             generateMaze(gridSize);
             resize();
             
-            document.getElementById('level-ui').innerText = `NÍVEL ${level}`;
+            document.getElementById('level-ui').innerText = `Nível ${level}`;
             document.getElementById('win-screen').classList.add('hidden');
             updateUI();
-            
             isGameReady = true;
         }
 
@@ -214,35 +237,26 @@
                 } else stack.pop();
             }
 
-            // Criar atalhos e caminhos extras
-            for(let i=0; i < size; i++) {
-                let rx = Math.floor(Math.random()*(size-2))+1;
-                let ry = Math.floor(Math.random()*(size-2))+1;
-                if (maze[ry]) maze[ry][rx] = 0;
-            }
-
             items = []; ghosts = [];
-            // Spawn de Itens e VILÕES
+            // Limitar fantasmas para facilitar
+            const maxGhosts = Math.min(1 + Math.floor(level/4), 3); 
+
             for (let y = 1; y < size-1; y++) {
                 for (let x = 1; x < size-1; x++) {
                     if (maze[y][x] === 0 && !(x===1 && y===1)) {
                         const r = Math.random();
-                        // Itens
-                        if (r < 0.12) items.push({x, y, type: 'rat'});
-                        else if (r < 0.14) items.push({x, y, type: Math.random() > 0.5 ? 'shield' : 'fist'});
                         
-                        // FANTASMAS (Vilões) - Probabilidade ajustada para garantir presença
-                        const distToSpawn = Math.abs(x - 1) + Math.abs(y - 1);
-                        if (r > 0.96 && distToSpawn > 5) {
+                        // Muitos ratinhos
+                        if (r < 0.35) items.push({x, y, type: 'rat'});
+                        else if (r < 0.38) items.push({x, y, type: Math.random() > 0.5 ? 'shield' : 'fist'});
+                        
+                        // Fantasmas com condições restritas (Dificuldade equilibrada)
+                        const distToPlayer = Math.abs(x - 1) + Math.abs(y - 1);
+                        if (r > 0.985 && distToPlayer > 8 && ghosts.length < maxGhosts) {
                             ghosts.push({ x, y, startX: x, startY: y });
                         }
                     }
                 }
-            }
-
-            // Garantir pelo menos 1 fantasma em níveis superiores a 1
-            if (ghosts.length === 0 && level > 1) {
-                ghosts.push({ x: size-3, y: size-3, startX: size-3, startY: size-3 });
             }
 
             fish = { x: size-2, y: size-2 };
@@ -253,66 +267,47 @@
 
         function resize() {
             const dim = Math.min(window.innerWidth - 40, 420);
-            canvas.width = dim;
-            canvas.height = dim;
+            canvas.width = dim; canvas.height = dim;
             cellSize = dim / gridSize;
             render();
         }
 
         function render() {
-            if (!isGameReady || !maze || maze.length === 0) return;
-
+            if (!isGameReady || !maze.length) return;
             ctx.clearRect(0,0, canvas.width, canvas.height);
             
-            // Paredes (Neon Indigo)
-            ctx.shadowBlur = 0;
             for (let y=0; y<gridSize; y++) {
-                if (!maze[y]) continue;
                 for (let x=0; x<gridSize; x++) {
                     if (maze[y][x] === 1) {
-                        ctx.fillStyle = '#312e81';
+                        ctx.fillStyle = '#1e1b4b';
                         ctx.beginPath();
                         ctx.roundRect(x*cellSize+2, y*cellSize+2, cellSize-4, cellSize-4, 5);
                         ctx.fill();
-                        
-                        // Detalhe de luz no topo
-                        ctx.fillStyle = '#4338ca';
-                        ctx.fillRect(x*cellSize+4, y*cellSize+4, cellSize-8, 2);
                     }
                 }
             }
 
             ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-            
-            // Itens
             items.forEach(it => {
-                ctx.font = `${cellSize*0.6}px Arial`;
-                const emoji = it.type === 'rat' ? '🐁' : (it.type === 'shield' ? '🛡️' : '👊');
-                ctx.fillText(emoji, it.x*cellSize+cellSize/2, it.y*cellSize+cellSize/2);
+                ctx.font = `${cellSize*(it.type === 'rat' ? 0.7 : 0.6)}px Arial`;
+                ctx.fillText(it.type === 'rat' ? '🐁' : (it.type === 'shield' ? '🛡️' : '👊'), it.x*cellSize+cellSize/2, it.y*cellSize+cellSize/2);
             });
 
-            // Peixe (Meta)
-            ctx.font = `${cellSize*0.8}px Arial`;
+            ctx.font = `${cellSize*0.9}px Arial`;
             ctx.fillText('🐟', fish.x*cellSize+cellSize/2, fish.y*cellSize+cellSize/2);
 
-            // FANTASMAS (Vilões)
             ghosts.forEach(g => {
-                ctx.font = `${cellSize*0.75}px Arial`;
-                ctx.shadowColor = 'white';
-                ctx.shadowBlur = 5;
+                ctx.font = `${cellSize*0.8}px Arial`;
+                ctx.shadowColor = 'white'; ctx.shadowBlur = 4;
                 ctx.fillText('👻', g.x*cellSize+cellSize/2, g.y*cellSize+cellSize/2);
                 ctx.shadowBlur = 0;
             });
 
-            // Player (Skin Selecionada)
             ctx.save();
             if (player.shield) {
                 ctx.beginPath();
                 ctx.arc(player.x*cellSize+cellSize/2, player.y*cellSize+cellSize/2, cellSize/1.4, 0, Math.PI*2);
                 ctx.strokeStyle = '#00f2ff'; ctx.lineWidth = 3; ctx.stroke();
-            }
-            if (player.strength) {
-                ctx.shadowColor = '#ff4400'; ctx.shadowBlur = 10;
             }
             ctx.font = `${cellSize*0.8}px Arial`;
             ctx.fillText(skins[currentSkinIndex].emoji, player.x*cellSize+cellSize/2, player.y*cellSize+cellSize/2);
@@ -320,52 +315,47 @@
         }
 
         function tryMove(dx, dy) {
-            if (!isGameReady || document.getElementById('win-screen').classList.contains('flex')) return;
+            if (!isGameReady || !document.getElementById('win-screen').classList.contains('hidden')) return;
             let nx = player.x + dx, ny = player.y + dy;
             
             if (nx >= 0 && nx < gridSize && ny >= 0 && ny < gridSize) {
-                // Habilidade de quebrar paredes (Punho)
-                if (maze[ny] && maze[ny][nx] === 1 && player.strength) {
-                    maze[ny][nx] = 0;
+                if (maze[ny] && maze[ny][nx] === 1) {
+                    if (player.strength) { maze[ny][nx] = 0; play.wall(); }
+                    else { play.wall(); return; }
                 }
-                
-                if (maze[ny] && maze[ny][nx] === 0) {
-                    player.x = nx; player.y = ny;
-                    checkCollisions();
-                    render();
-                }
+                player.x = nx; player.y = ny;
+                play.move();
+                checkCollisions();
+                render();
             }
         }
 
         function checkCollisions() {
-            // Coleta de itens
             items = items.filter(it => {
                 if (it.x === player.x && it.y === player.y) {
-                    if (it.type === 'rat') { score++; updateUI(); }
-                    else activatePower(it.type);
+                    if (it.type === 'rat') { score++; play.coin(); updateUI(); }
+                    else { activatePower(it.type); play.power(); }
                     return false;
                 }
                 return true;
             });
 
-            // Colisão com FANTASMAS
             ghosts.forEach(g => {
                 const dist = Math.sqrt(Math.pow(g.x - player.x, 2) + Math.pow(g.y - player.y, 2));
                 if (dist < 0.6) {
                     if (player.shield) {
                         player.shield = false;
-                        // Repulsa o fantasma para longe
                         g.x = g.startX; g.y = g.startY;
+                        play.hit();
                     } else {
-                        // Perdeu: volta ao início do nível
                         player.x = 1; player.y = 1;
+                        play.hit();
                     }
                 }
             });
 
-            // Vitória
             if (player.x === fish.x && player.y === fish.y) {
-                document.getElementById('win-screen').style.display = 'flex';
+                play.win();
                 document.getElementById('win-screen').classList.remove('hidden');
             }
         }
@@ -373,10 +363,7 @@
         function activatePower(type) {
             if (type==='shield') player.shield = true;
             if (type==='fist') player.strength = true;
-            setTimeout(() => {
-                if(type==='fist') player.strength = false;
-                render();
-            }, 7000);
+            setTimeout(() => { if(type==='fist') player.strength = false; render(); }, 8000);
         }
 
         function updateUI() {
@@ -392,18 +379,13 @@
                 card.className = `skin-card p-3 text-center cursor-pointer ${currentSkinIndex === idx ? 'selected' : ''} ${!skin.unlocked ? 'locked' : ''}`;
                 card.innerHTML = `
                     <div class="text-3xl mb-1">${skin.emoji}</div>
-                    <div class="text-[10px] font-bold uppercase truncate text-white">${skin.name}</div>
-                    ${!skin.unlocked ? `<div class="text-[10px] text-yellow-400 mt-1 font-black">🐁 ${skin.price}</div>` : `<div class="text-[9px] text-indigo-400 mt-1 uppercase">Pronto</div>`}
+                    <div class="text-[10px] font-bold text-white">${skin.name}</div>
+                    ${!skin.unlocked ? `<div class="text-[10px] text-yellow-400 mt-1">🐁 ${skin.price}</div>` : `<div class="text-[9px] text-indigo-400 mt-1 uppercase">Usar</div>`}
                 `;
                 card.onclick = () => {
-                    if (skin.unlocked) { 
-                        currentSkinIndex = idx; 
-                        openShop(); 
-                        render(); 
-                    } else if (score >= skin.price) {
-                        score -= skin.price; 
-                        skin.unlocked = true; 
-                        currentSkinIndex = idx;
+                    if (skin.unlocked) { currentSkinIndex = idx; openShop(); render(); }
+                    else if (score >= skin.price) {
+                        score -= skin.price; skin.unlocked = true; currentSkinIndex = idx;
                         updateUI(); openShop(); render();
                     }
                 };
@@ -412,40 +394,25 @@
             document.getElementById('shop-modal').classList.replace('hidden', 'flex');
         }
 
-        // CICLO DOS VILÕES (Fantasmas perseguidores)
         setInterval(() => {
-            if (!isGameReady || document.getElementById('win-screen').classList.contains('flex')) return;
-            
+            if (!isGameReady || !document.getElementById('win-screen').classList.contains('hidden')) return;
             ghosts.forEach(g => {
-                const dx = player.x - g.x;
-                const dy = player.y - g.y;
-                
-                // Velocidade aumenta conforme o nível
-                const ghostSpeed = 0.02 + (level * 0.005);
-                const limitSpeed = 0.06;
-                const speed = Math.min(ghostSpeed, limitSpeed);
-
+                const dx = player.x - g.x, dy = player.y - g.y;
+                // Fantasmas um pouco mais lentos (0.015 base)
+                const speed = Math.min(0.015 + (level * 0.003), 0.05);
                 g.x += Math.sign(dx) * speed;
                 g.y += Math.sign(dy) * speed;
             });
-            
             checkCollisions();
             render();
         }, 100);
 
-        // Controlos de toque e clique
         const bind = (id, dx, dy) => {
-            const el = document.getElementById(id);
-            el.addEventListener('pointerdown', (e) => {
-                e.preventDefault();
-                tryMove(dx, dy);
-            });
+            document.getElementById(id).addEventListener('pointerdown', (e) => { e.preventDefault(); tryMove(dx, dy); });
         };
-
         bind('btn-up', 0, -1); bind('btn-down', 0, 1);
         bind('btn-left', -1, 0); bind('btn-right', 1, 0);
 
-        // Teclado
         window.onkeydown = (e) => {
             if(e.key === 'ArrowUp') tryMove(0, -1);
             if(e.key === 'ArrowDown') tryMove(0, 1);
@@ -455,12 +422,8 @@
 
         document.getElementById('btn-skins').onclick = openShop;
         document.getElementById('close-shop').onclick = () => document.getElementById('shop-modal').classList.replace('flex', 'hidden');
-        document.getElementById('btn-next').onclick = () => { 
-            level++; 
-            initGame(); 
-            document.getElementById('win-screen').style.display = 'none';
-        };
+        document.getElementById('btn-next').onclick = () => { level++; initGame(); };
         window.onresize = resize;
     </script>
 </body>
-</html>
+    </html>
